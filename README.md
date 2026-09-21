@@ -15,7 +15,7 @@ Dataset: Fashion-MNIST
 
 | Implementation | Approach | Role in the Project |
 | --- | --- | --- |
-| Naive K-Means | Simple implementation using explicit loops. | Unoptimized reference for establishing baseline performance. |
+| Vectorized K-Means | Simple implementation using numpy vectorization. | Standard reference for establishing baseline performance. |
 | Scikit-learn KMeans | Optimized CPU-based implementation. | Strong conventional CPU baseline. |
 | My Optimized MLX/Metal K-Means | Custom implementation developed progressively through GPU-oriented optimizations on Apple Silicon. | Main implementation and contribution of the project. |
 | Flash-KMeans-MLX | Existing highly optimized MLX-based K-Means implementation. | External optimized GPU reference. |
