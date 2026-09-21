@@ -9,6 +9,8 @@ The evaluation has two distinct parts:
 
 This README defines the evaluation plan. Implementations, optimization details, and measured results will be added as the project progresses; no performance claims are made yet.
 
+Dataset: Fashion-MNIST
+
 ## Implementations
 
 | Implementation | Approach | Role in the Project |
