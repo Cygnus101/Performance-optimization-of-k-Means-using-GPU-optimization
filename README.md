@@ -52,7 +52,7 @@ Results are pending. Populate a comparison table for each workload configuration
 
 | Implementation | Execution Time | Speedup vs. Vectorized NumPy | Speedup vs. Scikit-learn | Peak Memory | Iterations / Convergence | Final Inertia / Quality |
 | --- | --- | --- | --- | --- | --- | --- |
-| Vectorized NumPy K-Means | — | — | — | — | — | — |
+| Vectorized NumPy K-Means | 17.535 seconds | — | — | — | 34 | 2223801.093308 |
 | Scikit-learn KMeans | — | — | — | — | — | — |
 | My Optimized MLX/Metal K-Means | — | — | — | — | — | — |
 | Flash-KMeans-MLX | — | — | — | — | — | — |
