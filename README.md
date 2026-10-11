@@ -15,7 +15,7 @@ Dataset: Fashion-MNIST
 
 | Implementation | Approach | Role in the Project |
 | --- | --- | --- |
-| Vectorized K-Means | Simple implementation using numpy vectorization. | Standard reference for establishing baseline performance. |
+| Vectorized NumPy K-Means | Simple implementation using numpy vectorization. | Standard reference for establishing baseline performance. |
 | Scikit-learn KMeans | Optimized CPU-based implementation. | Strong conventional CPU baseline. |
 | My Optimized MLX/Metal K-Means | Custom implementation developed progressively through GPU-oriented optimizations on Apple Silicon. | Main implementation and contribution of the project. |
 | Flash-KMeans-MLX | Existing highly optimized MLX-based K-Means implementation. | External optimized GPU reference. |
@@ -29,7 +29,7 @@ This comparison evaluates all four implementations on the same workloads. The cu
 | Metric | Evaluation |
 | --- | --- |
 | Execution time | Measure elapsed time over repeated runs, reporting a central estimate and variability. Distinguish end-to-end time from clustering-only time. |
-| Speedup | Divide a reference implementation's runtime by the evaluated implementation's runtime for the same workload. Report speedup relative to both Naive K-Means and Scikit-learn KMeans. |
+| Speedup | Divide a reference implementation's runtime by the evaluated implementation's runtime for the same workload. Report speedup relative to both Vectorized NumPy K-Means and Scikit-learn KMeans. |
 | Memory usage | Measure peak memory usage and state the measurement method and scope. Account for Apple Silicon's unified memory without double-counting shared allocations. |
 | Scaling with samples N | Vary the number of samples while holding D and K fixed. |
 | Scaling with dimensionality D | Vary the number of features while holding N and K fixed. |
@@ -50,9 +50,9 @@ This comparison evaluates all four implementations on the same workloads. The cu
 
 Results are pending. Populate a comparison table for each workload configuration, identifying N, D, K, precision, and initialization settings. Summarize scaling across configurations with plots or additional tables.
 
-| Implementation | Execution Time | Speedup vs. Naive | Speedup vs. Scikit-learn | Peak Memory | Iterations / Convergence | Final Inertia / Quality |
+| Implementation | Execution Time | Speedup vs. Vectorized NumPy | Speedup vs. Scikit-learn | Peak Memory | Iterations / Convergence | Final Inertia / Quality |
 | --- | --- | --- | --- | --- | --- | --- |
-| Naive K-Means | — | — | — | — | — | — |
+| Vectorized NumPy K-Means | — | — | — | — | — | — |
 | Scikit-learn KMeans | — | — | — | — | — | — |
 | My Optimized MLX/Metal K-Means | — | — | — | — | — | — |
 | Flash-KMeans-MLX | — | — | — | — | — | — |
