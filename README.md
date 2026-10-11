@@ -22,6 +22,17 @@ Dataset: Fashion-MNIST
 
 ## Final Benchmark Comparison
 
+Run the CPU baselines with `python implementations/vectorized_implementation.py` and
+`python implementations/scikit_implementation.py`. Both use normalized float32
+Fashion-MNIST, the same seed-42 randomly selected initial centroids, one run,
+10 clusters, and at most 1,000 iterations. Dataset loading is excluded from their
+reported clustering times. Both report iteration counts and final inertia.
+The NumPy baseline uses an absolute centroid-shift threshold; scikit-learn uses
+its relative tolerance. Setting both to `1e-4` does not give identical stopping
+criteria. Scikit-learn also handles empty clusters differently. Its reported
+iteration-limit flag does not establish whether convergence occurred on the last
+iteration.
+
 This comparison evaluates all four implementations on the same workloads. The custom implementation is represented by its final selected version; intermediate versions are evaluated separately in the optimization study below.
 
 ### Evaluation Metrics
@@ -53,7 +64,7 @@ Results are pending. Populate a comparison table for each workload configuration
 | Implementation | Execution Time | Speedup vs. Vectorized NumPy | Speedup vs. Scikit-learn | Peak Memory | Iterations / Convergence | Final Inertia / Quality |
 | --- | --- | --- | --- | --- | --- | --- |
 | Vectorized NumPy K-Means | 17.535 seconds | — | — | — | 34 | 2223801.093308 |
-| Scikit-learn KMeans | — | — | — | — | — | — |
+| Scikit-learn KMeans | 0.561 seconds | — | — | — | 28 | 2223801.500000 |
 | My Optimized MLX/Metal K-Means | — | — | — | — | — | — |
 | Flash-KMeans-MLX | — | — | — | — | — | — |
 
