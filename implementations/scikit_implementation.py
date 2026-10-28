@@ -17,8 +17,7 @@ def kmeans(X, num_clusters=10, num_iterations=100, threshold=1e-4):
     Scikit-learn's tolerance is relative and differs from the NumPy baseline's
     absolute centroid-shift threshold, even when their values are identical.
     """
-    # RandomState reproduces np.random.seed(42) + np.random.choice without
-    # changing the global random state. Pass the selected centers explicitly.
+
     rng = np.random.RandomState(42)
     random_indices = rng.choice(X.shape[0], num_clusters, replace=False)
     initial_centroids = X[random_indices].astype(np.result_type(X.dtype, np.float32))
