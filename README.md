@@ -6,8 +6,6 @@ K-Means repeatedly assigns samples to their nearest centroid and recomputes cent
 
 **Current status:** two CPU baselines are implemented and have previously recorded results. GPU implementations and their evaluation are planned; no CUDA implementation is currently present.
 
-[Repository](https://github.com/Cygnus101/Performance-optimization-of-k-Means-using-GPU-optimization)
-
 ## Objectives
 
 - Establish basic and optimized CPU references using NumPy and scikit-learn.
@@ -29,8 +27,8 @@ The existing scripts use NumPy and scikit-learn. PyTorch, Colab, plotting, and c
 
 | Implementation | Approach | Role |
 | --- | --- | --- |
-| Vectorized NumPy K-Means | CPU implementation using NumPy vectorization | Basic CPU reference |
-| Scikit-learn KMeans | Highly optimized CPU implementation | Strong CPU baseline |
+| [Vectorized NumPy K-Means](implementations/vectorized_implementation.py) | CPU implementation using NumPy vectorization | Basic CPU reference |
+| [Scikit-learn KMeans](implementations/scikit_implementation.py) | Highly optimized CPU implementation | Strong CPU baseline |
 | V0: PyTorch GPU K-Means | Standard GPU implementation using `torch.cdist()` with `compute_mode="donot_use_mm_for_euclid_dist"` | Baseline GPU implementation |
 | V1: Optimized PyTorch GPU K-Means | Matrix multiplication formulation of squared Euclidean distance | Mathematical and computational optimization |
 | V2: Numba CUDA K-Means | Custom GPU kernel for cluster assignment, with explicit control over threads, blocks and memory access | Custom CUDA programming and GPU-level optimization |
@@ -41,24 +39,24 @@ V0 and V1 are the primary GPU deliverables. V2 is an optional stretch goal, cont
 
 For samples xᵢ and K centroids cⱼ, K-Means minimizes the inertia:
 
-$$
+```math
 J = \sum_{i=1}^{N} \lVert x_i - c_{a_i} \rVert^2,
 \qquad a_i = \operatorname*{argmin}_{j} \lVert x_i - c_j \rVert^2.
-$$
+```
 
 Each iteration alternates nearest-centroid assignment with computing the mean of each cluster. Empty-cluster behavior must be specified and considered when comparing implementations.
 
 Squared Euclidean distance can be reformulated as:
 
-$$
+```math
 \lVert x-c \rVert^2 = \lVert x \rVert^2 + \lVert c \rVert^2 - 2x^\top c.
-$$
+```
 
 For nearest-centroid assignment, the sample norm is constant across centroids, so V1 can use:
 
-$$
+```math
 a_i = \operatorname*{argmin}_{j} \left(\lVert c_j \rVert^2 - 2x_i^\top c_j\right).
-$$
+```
 
 For X of shape N × D and C of shape K × D, the cross term is computed as `X @ C.T`. These assignment scores are not themselves squared distances; final inertia must use actual squared residuals or the complete distance expression. Floating-point rounding and ties can produce different assignments, so numerical correctness must be checked.
 
@@ -92,7 +90,7 @@ Centroid updates may initially remain in PyTorch. This would be a **custom CUDA 
 
 **Primary dataset:** Fashion-MNIST, loaded through `sklearn.datasets.fetch_openml`. The existing scripts use the full dataset, convert features to float32, and normalize pixel values by 255. Labels are loaded but are not used to fit K-Means.
 
-**Existing CPU configuration:** seed-42 randomly selected initial centroids, one run, K = 10, at most 1,000 iterations, and tolerance value `1e-4`. Both scripts use the same initial centroids and exclude dataset loading from their reported clustering time.
+**Existing CPU configuration:** seed-42 randomly selected initial centroids, one run, K = 10, at most 1,000 iterations, and tolerance value `1e-4`. Both scripts use the same initial centroids. Their reported clustering times include centroid initialization and fitting, with dataset loading outside the timed section.
 
 **Planned scaling experiments:** synthetic datasets with fixed seeds, varying N, D, and K independently while holding the other dimensions fixed. Choose feasible sizes for the available Colab GPU and report actual dataset shapes and generation settings. No synthetic-data benchmark runner is currently included.
 
@@ -165,13 +163,15 @@ implementations/
     scikit_implementation.py       # scikit-learn CPU baseline
 ```
 
-The dataset loader creates or reuses `datasets/` as its local OpenML cache; it is not tracked in Git. An empty local `results/` directory currently exists, but no result artifacts are tracked there. No GPU scripts, Colab notebooks, dependency manifest, or benchmark runner are currently included.
+The dataset loader stores its OpenML cache in `datasets/` at the repository root. The repository currently contains the two CPU baseline scripts and this README.
 
 ## Setup and Execution
 
-Run the existing CPU baselines from the repository root in a Python environment with NumPy and scikit-learn installed:
+From the repository root, create a Python virtual environment, install the CPU dependencies, and run both baselines. The activation command below is for macOS and Linux.
 
 ```bash
+python3 -m venv .venv
+source .venv/bin/activate
 python -m pip install numpy scikit-learn
 python implementations/vectorized_implementation.py
 python implementations/scikit_implementation.py
