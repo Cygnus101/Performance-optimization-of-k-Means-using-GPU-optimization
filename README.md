@@ -41,7 +41,7 @@ For samples xᵢ and K centroids cⱼ, K-Means minimizes the inertia:
 
 ```math
 J = \sum_{i=1}^{N} \lVert x_i - c_{a_i} \rVert^2,
-\qquad a_i = \operatorname*{argmin}_{j} \lVert x_i - c_j \rVert^2.
+\qquad a_i = \arg\min_{j} \lVert x_i - c_j \rVert^2.
 ```
 
 Each iteration alternates nearest-centroid assignment with computing the mean of each cluster. Empty-cluster behavior must be specified and considered when comparing implementations.
@@ -55,7 +55,7 @@ Squared Euclidean distance can be reformulated as:
 For nearest-centroid assignment, the sample norm is constant across centroids, so V1 can use:
 
 ```math
-a_i = \operatorname*{argmin}_{j} \left(\lVert c_j \rVert^2 - 2x_i^\top c_j\right).
+a_i = \arg\min_{j} \left(\lVert c_j \rVert^2 - 2x_i^\top c_j\right).
 ```
 
 For X of shape N × D and C of shape K × D, the cross term is computed as `X @ C.T`. These assignment scores are not themselves squared distances; final inertia must use actual squared residuals or the complete distance expression. Floating-point rounding and ties can produce different assignments, so numerical correctness must be checked.
