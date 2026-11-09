@@ -4,12 +4,12 @@ This project investigates how GPU acceleration, mathematical reformulation, and 
 
 K-Means repeatedly assigns samples to their nearest centroid and recomputes centroids. Distance computation makes it a useful course-project workload for studying parallelism, matrix multiplication, and intermediate memory usage. GPU acceleration does not guarantee speedup: workload size, transfer costs, memory requirements, and convergence behavior all matter.
 
-**Current status:** two CPU baselines are implemented and have previously recorded results. GPU implementations and their evaluation are planned; no CUDA implementation is currently present.
+**Current status:** two CPU baselines are implemented and have previously recorded results. The V0 PyTorch CUDA baseline is implemented. GPU benchmark results and the V1 optimization are pending.
 
 ## Objectives
 
 - Establish basic and optimized CPU references using NumPy and scikit-learn.
-- Implement a baseline PyTorch GPU version (V0) and a matrix multiplication version (V1).
+- Compare the baseline PyTorch GPU version (V0) with a matrix multiplication version (V1).
 - Measure runtime, speedup, memory consumption, convergence, and clustering correctness.
 - Investigate scaling with sample count N, feature dimension D, and cluster count K.
 - If time permits, implement and evaluate a custom Numba CUDA assignment kernel (V2).
@@ -21,7 +21,7 @@ K-Means repeatedly assigns samples to their nearest centroid and recomputes cent
 | Primary | Python, NumPy, scikit-learn, PyTorch with CUDA, Google Colab, Matplotlib |
 | Optional | Numba CUDA, NVIDIA GPU profiling utilities |
 
-The existing scripts use NumPy and scikit-learn. PyTorch, Colab, plotting, and custom CUDA support belong to the planned work. C++ is not required.
+The CPU baselines use NumPy and scikit-learn. V0 adds PyTorch with CUDA. Plotting and the optional custom CUDA kernel are planned.
 
 ## Implementations and Comparison
 
@@ -29,11 +29,11 @@ The existing scripts use NumPy and scikit-learn. PyTorch, Colab, plotting, and c
 | --- | --- | --- |
 | [Vectorized NumPy K-Means](implementations/vectorized_implementation.py) | CPU implementation using NumPy vectorization | Basic CPU reference |
 | [Scikit-learn KMeans](implementations/scikit_implementation.py) | Highly optimized CPU implementation | Strong CPU baseline |
-| V0: PyTorch GPU K-Means | Standard GPU implementation using `torch.cdist()` with `compute_mode="donot_use_mm_for_euclid_dist"` | Baseline GPU implementation |
+| [V0 PyTorch GPU K-Means](implementations/pytorch_v0_implementation.py) | Standard GPU implementation using `torch.cdist()` with `compute_mode="donot_use_mm_for_euclid_dist"` | Baseline GPU implementation |
 | V1: Optimized PyTorch GPU K-Means | Matrix multiplication formulation of squared Euclidean distance | Mathematical and computational optimization |
 | V2: Numba CUDA K-Means | Custom GPU kernel for cluster assignment, with explicit control over threads, blocks and memory access | Custom CUDA programming and GPU-level optimization |
 
-V0 and V1 are the primary GPU deliverables. V2 is an optional stretch goal, contingent on available time. The table describes the intended comparison, not implementation completion.
+V0 and V1 are the primary GPU deliverables. V2 is an optional stretch goal, contingent on available time.
 
 ## Mathematical Background
 
@@ -62,12 +62,12 @@ For X of shape N × D and C of shape K × D, the cross term is computed as `X @ 
 
 ## Optimization Strategy
 
-### V0: Baseline PyTorch GPU K-Means — planned
+### V0: Baseline PyTorch GPU K-Means
 
 - Store samples and centroids as PyTorch tensors on an NVIDIA GPU.
 - Compute Euclidean distances using `torch.cdist(X, C, p=2, compute_mode="donot_use_mm_for_euclid_dist")`, explicitly disabling its matrix multiplication path.
-- Perform cluster assignment and centroid updates on the GPU.
-- Establish baseline GPU execution time, memory consumption, convergence, and clustering quality.
+- Assign clusters and accumulate centroid sums and counts on the GPU. Keep the previous centroid for any empty cluster, as in the NumPy baseline.
+- Use the NumPy baseline's absolute centroid-shift threshold. Each iteration reads the shift back on the host to decide whether to stop.
 
 ### V1: Mathematically Optimized PyTorch GPU K-Means — planned
 
@@ -125,17 +125,17 @@ Benchmark protocol:
 | --- | --- | --- |
 | NumPy CPU baseline | Implemented; recorded results available | [Source](implementations/vectorized_implementation.py); reports runtime, iterations, convergence, and inertia |
 | Scikit-learn CPU baseline | Implemented; recorded results available | [Source](implementations/scikit_implementation.py); reports runtime, iterations, iteration-limit flag, and inertia |
-| V0 PyTorch GPU | Planned | No implementation present |
+| V0 PyTorch GPU | Implemented | [Source](implementations/pytorch_v0_implementation.py). Reports time, peak allocated GPU tensor memory, iterations, convergence, and inertia. CUDA benchmark results are pending. |
 | V1 optimized PyTorch GPU | Planned | No implementation present |
 | V2 Numba CUDA assignment | Optional stretch goal | No implementation present |
 | Repeated/scaling benchmarks, memory measurements, and plots | Planned | No automated experiment runner or plots present |
 
-No GPU implementation is currently evidenced as in progress. Existing CPU code and historical results do not establish completion of the broader correctness and repeated-benchmark evaluation.
+Systematic correctness checks and repeated CPU and GPU benchmarks are pending.
 
 ## Roadmap
 
 1. **Phase 1: CPU baselines.** NumPy and scikit-learn implementations are available. Complete systematic correctness checks and repeated runtime benchmarks, recording the environment and convergence differences.
-2. **Phase 2: Baseline GPU acceleration.** Implement V0 PyTorch K-Means and compare CPU and GPU performance.
+2. **Phase 2: Baseline GPU acceleration.** Run the V0 PyTorch baseline on CUDA and compare CPU and GPU performance.
 3. **Phase 3: Mathematical optimization.** Implement V1 using the matrix multiplication formulation; investigate runtime and memory efficiency.
 4. **Phase 4: Custom CUDA programming (optional).** Implement V2 Numba CUDA cluster assignment, followed by kernel-level benchmarking and selected optimizations.
 5. **Phase 5: Experimental evaluation.** Benchmark all completed implementations, analyze performance scaling, plot runtime/speedup/memory usage, and summarize findings and limitations.
@@ -161,9 +161,10 @@ README.md
 implementations/
     vectorized_implementation.py   # NumPy CPU baseline and shared dataset loader
     scikit_implementation.py       # scikit-learn CPU baseline
+    pytorch_v0_implementation.py   # PyTorch CUDA baseline
 ```
 
-The dataset loader stores its OpenML cache in `datasets/` at the repository root. The repository currently contains the two CPU baseline scripts and this README.
+The dataset loader stores its OpenML cache in `datasets/` at the repository root.
 
 ## Setup and Execution
 
@@ -179,7 +180,17 @@ python implementations/scikit_implementation.py
 
 The first dataset fetch requires internet access; subsequent runs can reuse `datasets/`. These scripts execute the CPU configuration described above and print clustering time, iteration information, and final inertia. The NumPy implementation constructs a broadcast N × K × D intermediate, so the full Fashion-MNIST run can require substantial host memory.
 
-For future GPU work, use a Google Colab runtime with an NVIDIA GPU and verify that PyTorch detects CUDA before running GPU experiments. CUDA/Numba installation details and GPU execution commands will be documented once the corresponding code and environment have been implemented and validated.
+### Run V0 on an NVIDIA GPU
+
+Use a Google Colab GPU runtime or a Python environment with a [CUDA-enabled PyTorch installation](https://pytorch.org/get-started/locally/). From the repository root, run these commands (prefix each line with `!` if using a Colab code cell).
+
+```bash
+python -m pip install numpy scikit-learn
+python -c "import torch; assert torch.cuda.is_available(), 'CUDA is unavailable'; print(torch.cuda.get_device_name(0))"
+python implementations/pytorch_v0_implementation.py
+```
+
+V0 uses the CPU baselines' Fashion-MNIST preprocessing, seed, cluster count, and iteration cap. The script synchronizes CUDA around the timed run and includes initialization, fitting, final assignment, and inertia. It excludes dataset loading, input transfer, and a warm-up on the first 1,024 samples. Peak allocated PyTorch GPU tensor memory includes the resident input and temporary tensors. Allocator reservations and CUDA allocations outside PyTorch are outside this measurement.
 
 ## Future Scope
 
