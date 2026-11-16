@@ -12,9 +12,19 @@ else:
     from vectorized_implementation import load_fashion_mnist
 
 
-@torch.no_grad()
+def _assign_labels(X, centroids):
+    return torch.cdist(
+        X, centroids, p=2, compute_mode="donot_use_mm_for_euclid_dist"
+    ).argmin(dim=1)
+
+
 def kmeans(X, num_clusters=10, num_iterations=100, threshold=1e-4):
     """Fit on X's device and return labels, centroids, iterations, convergence, and inertia."""
+    return _fit_kmeans(X, num_clusters, num_iterations, threshold, _assign_labels)
+
+
+@torch.no_grad()
+def _fit_kmeans(X, num_clusters, num_iterations, threshold, assign_labels):
     if X.ndim != 2 or X.numel() == 0:
         raise ValueError("X must be a nonempty two-dimensional tensor.")
     if X.dtype not in (torch.float32, torch.float64):
@@ -34,9 +44,7 @@ def kmeans(X, num_clusters=10, num_iterations=100, threshold=1e-4):
     converged = False
 
     for iteration in range(1, num_iterations + 1):
-        labels = torch.cdist(
-            X, centroids, p=2, compute_mode="donot_use_mm_for_euclid_dist"
-        ).argmin(dim=1)
+        labels = assign_labels(X, centroids)
 
         sums = torch.zeros_like(centroids).index_add_(0, labels, X)
         counts = X.new_zeros(num_clusters).index_add_(0, labels, sample_counts)
@@ -50,28 +58,30 @@ def kmeans(X, num_clusters=10, num_iterations=100, threshold=1e-4):
             converged = True
             break
 
-    labels = torch.cdist(
-        X, centroids, p=2, compute_mode="donot_use_mm_for_euclid_dist"
-    ).argmin(dim=1)
+    labels = assign_labels(X, centroids)
     inertia = (X - centroids[labels]).square().sum(dtype=torch.float64).item()
     return labels, centroids, iteration, converged, inertia
 
 
 def main():
+    _run_cuda_benchmark(kmeans, "V0")
+
+
+def _run_cuda_benchmark(fit, version):
     if not torch.cuda.is_available():
-        raise SystemExit("V0 requires a CUDA-enabled PyTorch install and an NVIDIA GPU.")
+        raise SystemExit(f"{version} requires a CUDA-enabled PyTorch install and an NVIDIA GPU.")
 
     device = torch.device("cuda", torch.cuda.current_device())
     X, _ = load_fashion_mnist()
     samples = torch.as_tensor(X, device=device)
 
     # Warm up the same operations on a small slice before the full run.
-    kmeans(samples[:1024], num_iterations=2)
+    fit(samples[:1024], num_iterations=2)
     torch.cuda.synchronize(device)
     torch.cuda.reset_peak_memory_stats(device)
 
     start = perf_counter()
-    labels, centroids, iterations, converged, inertia = kmeans(
+    labels, centroids, iterations, converged, inertia = fit(
         samples, num_clusters=10, num_iterations=1000, threshold=1e-4
     )
     torch.cuda.synchronize(device)
@@ -79,7 +89,7 @@ def main():
     peak_mib = torch.cuda.max_memory_allocated(device) / 1024**2
 
     print(f"GPU: {torch.cuda.get_device_name(device)}")
-    print("PyTorch V0 K-means completed.", labels.shape, centroids.shape)
+    print(f"PyTorch {version} K-means completed.", labels.shape, centroids.shape)
     print(f"Clustering time: {elapsed:.3f} seconds")
     print(f"Peak PyTorch CUDA tensor memory: {peak_mib:.2f} MiB")
     print(f"Iterations: {iterations}; converged: {converged}")
