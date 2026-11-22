@@ -103,10 +103,13 @@ inertia, iteration-count, or phase-breakdown figures are produced. Inertia and
 iteration counts are correctness checks, not plotted metrics. The earlier proposed
 multi-figure patch was absent from this checkout, so no old figures needed deletion.
 
-Use a fresh output directory for each experiment (`--output results/my_run`). The
-runner rejects a nonempty directory to prevent mixing measurements. Partial CSV
-results are checkpointed after each implementation/K; plots are written only after
-the complete requested sweep passes validation. Generated results are ignored by Git.
+Existing output folders can be reused (`--output results/my_run`). Once dataset and
+device setup succeeds, the runner removes its previous `runtime.csv`,
+`environment.json`, `runtime_vs_k.png`, and `speedup_vs_k.png`, then writes fresh
+results. Unrelated files and subfolders are preserved. Reruns replace measurements
+rather than append to them, and old plots are cleared even if the new run fails.
+Partial CSV results are checkpointed after each implementation/K; plots are written
+only after the complete sweep passes validation. Generated results are ignored by Git.
 To regenerate only the allowed plots from a completed run:
 
 ```bash

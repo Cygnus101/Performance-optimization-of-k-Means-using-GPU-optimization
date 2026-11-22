@@ -1,4 +1,5 @@
 import tempfile
+import csv
 import json
 import unittest
 from unittest.mock import patch
@@ -101,8 +102,19 @@ class FixedWorkTests(unittest.TestCase):
             from benchmarks.plot_k import plot_results
             plot_results(Path(folder) / 'runtime.csv')
             self.assertEqual({p.name for p in Path(folder).glob('*.png')}, {'runtime_vs_k.png'})
-            with self.assertRaises(ValueError):
-                run_sweep(folder, dataset="synthetic", cpu_only=True, smoke=True, no_progress=True)
+            notes = Path(folder) / 'notes.txt'
+            notes.write_text('keep this file')
+            for filename in ('runtime.csv', 'environment.json', 'runtime_vs_k.png', 'speedup_vs_k.png'):
+                (Path(folder) / filename).write_text('stale output')
+            rerun = run_sweep(folder, dataset="synthetic", cpu_only=True, smoke=True, no_progress=True)
+            self.assertEqual(len(rerun), 20)
+            with (Path(folder) / 'runtime.csv').open(newline='') as stream:
+                self.assertEqual(len(list(csv.DictReader(stream))), 20)
+            metadata = json.loads((Path(folder) / 'environment.json').read_text())
+            self.assertEqual(metadata['dataset'], 'synthetic')
+            self.assertTrue((Path(folder) / 'runtime_vs_k.png').read_bytes().startswith(b'\x89PNG'))
+            self.assertFalse((Path(folder) / 'speedup_vs_k.png').exists())
+            self.assertEqual(notes.read_text(), 'keep this file')
 
     def test_cli_defaults_to_fashion_mnist(self):
         with patch('sys.argv', ['sweep_k']), patch('benchmarks.sweep_k.run_sweep') as run:

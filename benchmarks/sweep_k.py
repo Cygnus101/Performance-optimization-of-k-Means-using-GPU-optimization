@@ -64,8 +64,6 @@ def run_sweep(output, *, dataset="fashion-mnist", cpu_only=False, smoke=False,
               threads=1, speedup=False, no_progress=False):
     output = Path(output)
     output.mkdir(parents=True, exist_ok=True)
-    if any(output.iterdir()):
-        raise ValueError(f"Use an empty output directory: {output}")
     tqdm.write(f"Loading dataset: {dataset}...")
     X, preprocessing = load_benchmark_data(dataset, smoke=smoke)
     n, d = X.shape
@@ -95,6 +93,10 @@ def run_sweep(output, *, dataset="fashion-mnist", cpu_only=False, smoke=False,
         metadata.update(gpu=torch.cuda.get_device_name(device), torch=torch.__version__,
                         cuda=torch.version.cuda, tf32=False)
     metadata["gpu_status"] = "omitted (--cpu-only)" if cpu_only else "CUDA"
+    # Clear only our previous artifacts once dataset/device setup succeeds.
+    # This prevents stale plots or timings surviving an interrupted rerun.
+    for filename in ("runtime.csv", "environment.json", "runtime_vs_k.png", "speedup_vs_k.png"):
+        (output / filename).unlink(missing_ok=True)
     (output / "environment.json").write_text(json.dumps(metadata, indent=2) + "\n")
     rows = []
     with threadpool_limits(limits=threads), tqdm(
