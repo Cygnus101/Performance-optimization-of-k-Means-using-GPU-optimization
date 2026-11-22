@@ -1,5 +1,6 @@
 """Run on Colab for hardware coverage; simulator deliberately excludes shuffles."""
 import importlib
+import csv
 import os
 from pathlib import Path
 import tempfile
@@ -8,9 +9,10 @@ import unittest
 import numpy as np
 from numba import config, cuda
 
-from benchmarks.sweep_numba import (
-    K_VALUES, configurations, cpu_reference, plot_results, validate_result,
-)
+from benchmarks.sweep_k import K_VALUES, run_sweep
+from benchmarks.numba_configs import configurations
+from benchmarks.validation import cpu_reference, validate_result
+from benchmarks.plot_k import plot_results
 from implementations.numba_cuda.common import require_cuda
 
 MODULES = ("v2_1_block_tuning", "v2_2_coalescing", "v2_3_warp",
@@ -50,9 +52,14 @@ class ReferenceTests(unittest.TestCase):
         rows = [dict(implementation=name, k=k, run=run, seconds=float(k + run))
                 for name, _, _ in configs for k in K_VALUES for run in range(1, 6)]
         with tempfile.TemporaryDirectory() as folder:
-            medians = plot_results(rows, Path(folder), speedup=True)
-            self.assertEqual(medians['V2.0 baseline'], [k + 3 for k in K_VALUES])
-            self.assertEqual({p.name for p in Path(folder).iterdir()},
+            path = Path(folder) / 'runtime.csv'
+            with path.open('w', newline='') as stream:
+                writer = csv.DictWriter(stream, fieldnames=rows[0].keys())
+                writer.writeheader()
+                writer.writerows(rows)
+            medians = plot_results(path, speedup=True)
+            self.assertEqual(medians['V2.0 baseline'], {k: k + 3 for k in K_VALUES})
+            self.assertEqual({p.name for p in Path(folder).glob('*.png')},
                              {'runtime_vs_k.png', 'speedup_vs_k.png'})
 
     def test_sweep_rejects_nonhardware(self):
@@ -121,6 +128,14 @@ class KernelTests(unittest.TestCase):
 
 @unittest.skipUnless(HARDWARE, 'Real NVIDIA CUDA required, no simulator warp emulation')
 class HardwareTests(unittest.TestCase):
+    def test_unified_gpu_smoke(self):
+        # Real PyTorch and Numba through the exact same timing/validation runner.
+        with tempfile.TemporaryDirectory() as folder:
+            rows = run_sweep(folder, dataset='synthetic', suite='gpu', smoke=True,
+                             speedup=True, no_progress=True)
+            self.assertEqual(len(rows), 2 * 9 * 5)
+            self.assertEqual(len({row['implementation'] for row in rows}), 9)
+
     def test_all_k_and_block_configurations_at_784_features(self):
         X = np.random.default_rng(19).random((137, 784), dtype=np.float32)
         for k in K_VALUES:

@@ -124,10 +124,10 @@ class FixedWorkTests(unittest.TestCase):
     def test_default_dataset_uses_fashion_loader_and_preserves_features(self):
         X = np.random.default_rng(2).random((300, 784), dtype=np.float32)
         with patch.object(numpy_impl, 'load_fashion_mnist', return_value=(X, np.zeros(300))) as load:
-            full, _ = load_benchmark_data()
+            with self.assertRaisesRegex(ValueError, "full Fashion-MNIST"):
+                load_benchmark_data()
             small, _ = load_benchmark_data(smoke=True)
         self.assertEqual(load.call_count, 2)
-        np.testing.assert_array_equal(full, X)
         np.testing.assert_array_equal(small, X[:256])
         self.assertEqual(small.shape, (256, 784))
 

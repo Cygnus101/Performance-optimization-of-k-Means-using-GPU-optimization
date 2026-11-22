@@ -4,3 +4,6 @@ matplotlib>=3.7
 threadpoolctl>=3.5
 torch>=2.2
 tqdm>=4.66
+numba>=0.60
+# NVIDIA CUDA toolkit libraries on Linux (Colab); Mac supports simulator checks only.
+numba-cuda[cu12]; platform_system == "Linux"
