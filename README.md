@@ -1,7 +1,7 @@
 # Performance Optimization of K-Means Using GPU Computing
 
 Compare NumPy CPU, scikit-learn CPU, the PyTorch CUDA baseline, and independent
-Numba CUDA V2.0–V2.5 implementations using **one complete-fit benchmark**.
+Numba CUDA V2.0–V2.6 implementations using **one complete-fit benchmark**.
 No GPU performance claim is made until measured on NVIDIA CUDA.
 
 ## Run the unified sweep
@@ -13,9 +13,9 @@ python -m pip install -r requirements.txt
 python -m benchmarks.sweep_k --speedup
 ```
 
-The default runs all 11 configurations: NumPy, sklearn, PyTorch, V2.0,
-V2.1 at 128/256/512 threads per block, and V2.2–V2.5 at 256 threads per block.
-V2.5 uses 32 shards. Every configuration shares the same timing and correctness
+The default runs all 12 configurations: NumPy, sklearn, PyTorch, V2.0,
+V2.1 at 128/256/512 threads per block, and V2.2–V2.6 at 256 threads per block.
+V2.5 and V2.6 use 32 shards. Every configuration shares the same timing and correctness
 policy. `sweep_numba.py` and `requirements-numba.txt` have been consolidated into
 `sweep_k.py` and `requirements.txt`; use the commands below instead of the old script.
 
@@ -129,17 +129,38 @@ centering and empty-cluster relocation. This private API is isolated in one help
 unsupported signatures fail rather than silently changing the workload. Tested
 versions are listed below. The wrapper continues to return a fitted KMeans model.
 
-## Independent Numba CUDA variants
+## Numba CUDA variants
 
-All filenames use underscores, `v2_0_baseline.py` through `v2_5_reduction.py`.
+All filenames use underscores, `v2_0_baseline.py` through `v2_6_warp_reduction.py`.
 The original baseline's contents and user comments are preserved. Its only change
 was renaming `v2.0_baseline.py` to `v2_0_baseline.py`.
 
 Each variant returns `(labels, centers, iterations, converged, inertia)` and accepts
-the baseline arguments plus `threads_per_block=256`. V2.5 also accepts `shards=32`.
+the baseline arguments plus `threads_per_block=256`. V2.5 and V2.6 also accept `shards=32`.
 New variants share `common.run_kmeans` and reuse V2.0 kernels for stages they do not
-replace. These are independent experiments against V2.0, not cumulative changes.
+replace. V2.1–V2.5 are independent experiments against V2.0. V2.6 explicitly combines
+V2.3 warp assignment with V2.5 sharded accumulation.
 No Numba implementation imports or uses PyTorch.
+
+V2.6 preserves V2.3's row-major image layout; it does not add V2.2's transposed
+copy. It reuses existing kernels rather than duplicating them. Warp assignment
+runs both inside the Lloyd loop and for final labels. Shard allocation, clearing,
+accumulation and merging remain inside complete-fit timing. Final inertia uses
+the same baseline kernel as the other variants. This combination tests whether
+sharding helps after warp assignment gets faster; a speedup is not guaranteed.
+It requires real NVIDIA CUDA because the simulator cannot execute warp shuffles.
+
+After copying/pushing these changes to Kaggle, run the same GPU sweep in a fresh
+output directory to compare V2.6 directly with V2.3 and V2.5:
+
+```python
+!env -u NUMBA_ENABLE_CUDASIM NUMBA_TEST_REQUIRE_GPU=1 python -m unittest discover -s tests -p 'test_numba_cuda.py' -v
+!env -u NUMBA_ENABLE_CUDASIM python -m benchmarks.sweep_k --suite gpu --k 2 4 8 16 32 64 --speedup --output /kaggle/working/results/gpu_combo
+```
+
+The GPU suite now includes 10 configurations (nine Numba plus PyTorch), giving
+300 timed fits for the default six K values, plus 60 warmups. The CPU suite is
+unchanged. Existing measurements do not include V2.6 and are preserved.
 
 | File under `implementations/numba_cuda/` | Change relative to V2.0 | Tradeoff |
 | --- | --- | --- |
@@ -149,6 +170,7 @@ No Numba implementation imports or uses PyTorch.
 | `v2_3_warp.py` | One warp/image; lanes read consecutive features, then shuffle-reduce each centroid distance | Full 32-lane warps, ascending centroid tie-breaking in lane 0; padded feature tails; changes addition order |
 | `v2_4_shared_memory.py` | One image/thread; reuse 4-centroid x 128-feature tiles across the block | 2 KiB shared memory/block plus four local distances/thread; all threads reach barriers even for partial image blocks; synchronization costs can outweigh reuse |
 | `v2_5_reduction.py` | Blocks atomically accumulate into one of 32 `(K,D)` shards; a second kernel merges shards without atomics | Same number of sample atomics, spread over independent destinations; extra clear/merge work and `shards*K*(D*4+4)` bytes of scratch |
+| `v2_6_warp_reduction.py` | Reuses V2.3 warp assignment and V2.5 shard clear/accumulate/merge kernels | Keeps row-major coalesced feature reads; adds shard scratch, clear and merge costs to V2.3; a gain over V2.3 must be measured |
 
 The variants keep empty centroids, use float32 features/centers/sums, and use the
 baseline float64 atomic accumulator for final inertia. Compute capability >= 6.0
@@ -201,6 +223,84 @@ but remove final medians/plots. To regenerate plots from a completed raw CSV:
 ```sh
 python -m benchmarks.plot_k results/k_sweep/runtime.csv --speedup
 ```
+
+## NVIDIA GPU Docker execution
+
+Use a **Linux x86_64 NVIDIA GPU host** with Docker Engine and the
+[NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html)
+configured for Docker. This image targets CUDA 12.4-supported GPUs with compute
+capability >= 6.0. Require a Linux NVIDIA driver **>= 550.54.15** for this setup
+([CUDA 12.4 Update 1 driver table](https://docs.nvidia.com/cuda/archive/12.4.1/cuda-toolkit-release-notes/index.html)).
+Numba JIT emits PTX: the lower CUDA 12.x minor-compatibility driver minimum alone
+does not guarantee that the driver can load that PTX. Update the host driver if
+you see `CUDA_ERROR_UNSUPPORTED_PTX_VERSION`; do not bypass compatibility checks.
+The host needs a driver, not a separately installed CUDA toolkit. `nvidia-smi`'s
+CUDA version is the driver's supported maximum, not the container toolkit version.
+Apple Silicon/macOS cannot provide NVIDIA CUDA through Docker Desktop.
+
+The Dockerfile uses CUDA **12.4.1 devel**, Ubuntu 22.04/Python 3.10, and
+`requirements-docker.txt` with pinned numerical/CUDA Python packages. The devel
+image supplies NVVM and libdevice for Numba compilation. Numba 0.61.2 and NVIDIA
+`numba-cuda` 0.16.0 retain `from numba import cuda`; the build checks that NVIDIA's
+provider is loaded. This release uses the explicitly selected ctypes driver binding.
+Its `[cu12]` extra is intentionally omitted because the image supplies the toolkit;
+installing floating toolkit extras could introduce a different CUDA version.
+The Linux x86_64 PyTorch 2.6.0 wheel uses CUDA 12.4 libraries
+([official wheel options](https://docs.pytorch.org/get-started/previous-versions/)).
+Upgrade the toolkit, PyTorch and Numba packages together and repeat GPU validation.
+
+From the repository root on that host:
+
+```sh
+docker build --platform linux/amd64 -t kmeans-gpu:cu124 .
+mkdir -p datasets results
+docker run --rm --gpus all kmeans-gpu:cu124 nvidia-smi
+
+# Fail if real CUDA is absent; exercise kernels, warp shuffles and the GPU runner.
+docker run --rm --gpus all -e NUMBA_TEST_REQUIRE_GPU=1 kmeans-gpu:cu124 \
+  python3 -m unittest discover -s tests -p 'test_numba_cuda.py' -v
+
+# Quick functional check; synthetic data is explicitly selected, not a benchmark result.
+docker run --rm --gpus all --user "$(id -u):$(id -g)" \
+  -v "$PWD/results:/workspace/results" kmeans-gpu:cu124 \
+  python3 -m benchmarks.sweep_k --suite gpu --dataset synthetic --smoke \
+  --speedup --output results/docker_smoke
+
+# Full Fashion-MNIST: 70,000 combined images x 784 features, unchanged workload.
+docker run --rm --gpus all --user "$(id -u):$(id -g)" \
+  -v "$PWD/datasets:/workspace/datasets" -v "$PWD/results:/workspace/results" \
+  kmeans-gpu:cu124 python3 -m benchmarks.sweep_k --suite gpu --speedup \
+  --output results/docker_fashion_mnist
+```
+
+The first Fashion-MNIST run needs network access to OpenML; later runs reuse the
+mounted cache. Outputs survive container removal. Use a fresh output directory
+for each experiment. Change `--suite gpu` to `--suite all` to include CPU baselines,
+or `--suite numba` for Numba only. With no command override, the image runs the
+full Fashion-MNIST GPU suite. For a CPU-only container check, omit `--gpus all`
+and pass `python3 -m benchmarks.sweep_k --suite cpu --dataset synthetic --smoke`.
+Do not enable `NUMBA_ENABLE_CUDASIM` for GPU validation or timings.
+
+Keep `environment.json` with the results and record the host driver, toolkit,
+resolved packages and built image ID alongside it:
+
+```sh
+docker run --rm --gpus all kmeans-gpu:cu124 nvidia-smi > results/docker-nvidia-smi.txt
+docker run --rm kmeans-gpu:cu124 nvcc --version > results/docker-toolkit.txt
+docker run --rm kmeans-gpu:cu124 python3 -m pip freeze > results/docker-packages.txt
+docker image inspect kmeans-gpu:cu124 > results/docker-image.json
+```
+
+Core dependencies are pinned, but the base tag, Ubuntu updates and some transitive
+packages can change; this is not a byte-for-byte image lock. Retain the built image
+(e.g. `docker save`) for exact reuse. Docker Hub publication is optional.
+**Validation status:** authored on an Apple Silicon Mac without Docker or an NVIDIA
+GPU. With the pinned package versions on macOS/Python 3.13, `pip check` passed;
+unit discovery passed 21 tests (8 skipped) and CUDA simulator discovery passed
+8 tests (3 hardware tests skipped). Linux Python 3.10 wheels exist for all listed
+packages. These checks do not validate the Linux image or GPU execution.
+The image build, container execution and real GPU tests have not been run here;
+the commands above are still required on an NVIDIA host before claiming GPU success.
 
 ## Colab / NVIDIA execution
 
@@ -257,7 +357,7 @@ shuffle; V2.3 explicitly rejects simulator execution. See the official
 atomics/barriers, all-K 784-feature kernel checks, real unified PyTorch+Numba smoke
 execution, full Fashion-MNIST tolerances/memory use, and the complete five-run sweep.
 `NUMBA_TEST_REQUIRE_GPU=1` makes absent real CUDA an error instead of skipped tests.
-The hardware suite checks all six K values and eight Numba configurations on
+The hardware suite checks all six K values and nine Numba configurations on
 137 images of 784 features and also exercises the unified GPU smoke runner.
 No new GPU timings or speedup claims have been generated on this Mac.
 
@@ -322,7 +422,7 @@ and calculates run standard deviations, so the schemas are intentionally distinc
 
 ```text
 implementations/                 # Existing CPU/PyTorch algorithms
-implementations/numba_cuda/      # V2.0 baseline, V2.1–V2.5, shared runner
+implementations/numba_cuda/      # V2.0 baseline, V2.1–V2.6, shared runner
 benchmarks/sweep_k.py             # Single unified complete-fit sweep
 benchmarks/validation.py          # Independent float64 CPU reference/checks
 benchmarks/numba_configs.py       # Numba configuration registry

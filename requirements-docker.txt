@@ -1,0 +1,15 @@
+# Linux x86_64 / Ubuntu 22.04 Python 3.10 / CUDA 12.4.1.
+# Separate from the flexible notebook/local requirements.txt.
+numpy==2.2.6
+scipy==1.15.3
+scikit-learn==1.6.1
+matplotlib==3.10.3
+threadpoolctl==3.6.0
+tqdm==4.67.1
+numba==0.61.2
+llvmlite==0.44.0
+# No [cu12] extra: use the image's NVVM/libdevice, avoiding newer toolkit wheels.
+# This release supports the ctypes driver binding selected in the Dockerfile.
+numba-cuda==0.16.0
+# The Linux x86_64 PyPI wheel pins CUDA 12.4 runtime libraries (not a CPU wheel).
+torch==2.6.0

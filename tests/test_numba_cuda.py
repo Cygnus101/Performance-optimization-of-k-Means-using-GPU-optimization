@@ -16,7 +16,7 @@ from benchmarks.plot_k import plot_results
 from implementations.numba_cuda.common import require_cuda
 
 MODULES = ("v2_1_block_tuning", "v2_2_coalescing", "v2_3_warp",
-           "v2_4_shared_memory", "v2_5_reduction")
+           "v2_4_shared_memory", "v2_5_reduction", "v2_6_warp_reduction")
 SIMULATOR = bool(config.ENABLE_CUDASIM)
 HARDWARE = not SIMULATOR and cuda.is_available()
 if os.environ.get("NUMBA_TEST_REQUIRE_GPU") == "1":
@@ -47,7 +47,7 @@ class ReferenceTests(unittest.TestCase):
 
     def test_configuration_and_plot_contract(self):
         configs = configurations((128, 256, 512))
-        self.assertEqual(len(configs), 8)
+        self.assertEqual(len(configs), 9)
         self.assertEqual(K_VALUES, (2, 4, 8, 16, 32, 64))
         rows = [dict(implementation=name, k=k, run=run, seconds=float(k + run))
                 for name, _, _ in configs for k in K_VALUES for run in range(1, 6)]
@@ -73,7 +73,7 @@ class ReferenceTests(unittest.TestCase):
 class KernelTests(unittest.TestCase):
     def fits(self):
         for name in MODULES:
-            if name == 'v2_3_warp' and SIMULATOR:
+            if name in ('v2_3_warp', 'v2_6_warp_reduction') and SIMULATOR:
                 continue
             fit = importlib.import_module(f'implementations.numba_cuda.{name}').kmeans
             yield name, fit
@@ -103,7 +103,7 @@ class KernelTests(unittest.TestCase):
         reference = cpu_reference(X, initial, iterations=2)
         for name, fit in self.fits():
             with self.subTest(name=name):
-                options = {'shards': 3} if name == 'v2_5_reduction' else {}
+                options = {'shards': 3} if name in ('v2_5_reduction', 'v2_6_warp_reduction') else {}
                 result = fit(X, 5, num_iterations=2, initial_centroids=initial,
                              early_stopping=False, threads_per_block=32, **options)
                 validate_result(X, result, 5, iterations=2, reference_inertia=reference[-1])
@@ -121,9 +121,10 @@ class KernelTests(unittest.TestCase):
     def test_warp_simulator_is_explicitly_unsupported(self):
         if not SIMULATOR:
             self.skipTest('Only relevant to simulator')
-        from implementations.numba_cuda.v2_3_warp import kmeans
-        with self.assertRaisesRegex(RuntimeError, 'real NVIDIA'):
-            kmeans(np.zeros((3, 2), dtype=np.float32), 2)
+        for name in ('v2_3_warp', 'v2_6_warp_reduction'):
+            fit = importlib.import_module(f'implementations.numba_cuda.{name}').kmeans
+            with self.subTest(name=name), self.assertRaisesRegex(RuntimeError, 'real NVIDIA'):
+                fit(np.zeros((3, 2), dtype=np.float32), 2)
 
 
 @unittest.skipUnless(HARDWARE, 'Real NVIDIA CUDA required, no simulator warp emulation')
@@ -133,8 +134,25 @@ class HardwareTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             rows = run_sweep(folder, dataset='synthetic', suite='gpu', smoke=True,
                              speedup=True, no_progress=True)
-            self.assertEqual(len(rows), 2 * 9 * 5)
-            self.assertEqual(len({row['implementation'] for row in rows}), 9)
+            self.assertEqual(len(rows), 2 * 10 * 5)
+            self.assertEqual(len({row['implementation'] for row in rows}), 10)
+
+    def test_combo_matches_warp_with_different_shard_counts(self):
+        from implementations.numba_cuda.v2_3_warp import kmeans as warp
+        from implementations.numba_cuda.v2_6_warp_reduction import kmeans as combo
+        X = np.random.default_rng(23).normal(size=(35, 131)).astype(np.float32)
+        initial = X[:5].copy()
+        kwargs = dict(num_clusters=5, num_iterations=20, initial_centroids=initial,
+                      early_stopping=False, threads_per_block=64)
+        reference = cpu_reference(X, initial)
+        plain = warp(X, **kwargs)
+        for shards in (1, 3, 32):
+            with self.subTest(shards=shards):
+                result = combo(X, shards=shards, **kwargs)
+                validate_result(X, result, 5, reference_inertia=reference[-1])
+                np.testing.assert_array_equal(result[0], plain[0])
+                np.testing.assert_allclose(result[1], plain[1], rtol=1e-5, atol=2e-6)
+        np.testing.assert_array_equal(initial, X[:5])
 
     def test_all_k_and_block_configurations_at_784_features(self):
         X = np.random.default_rng(19).random((137, 784), dtype=np.float32)
