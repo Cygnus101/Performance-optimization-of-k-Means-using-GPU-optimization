@@ -1,0 +1,5 @@
+# Numba-only path; deliberately does not install PyTorch.
+numpy>=1.24
+numba>=0.60
+scikit-learn>=1.5,<1.10
+matplotlib>=3.7

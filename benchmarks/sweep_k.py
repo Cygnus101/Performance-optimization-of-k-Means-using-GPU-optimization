@@ -13,7 +13,7 @@ from tqdm.auto import tqdm
 from implementations import vectorized_implementation as numpy_impl
 from implementations import scikit_implementation as sklearn_impl
 
-K_VALUES = (2, 4, 8, 16, 32, 64, 128)
+K_VALUES = (2, 4, 8, 16, 32, 64)
 N, D, ITERATIONS, RUNS = 100_000, 32, 20, 5
 
 

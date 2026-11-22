@@ -116,6 +116,58 @@ To regenerate only the allowed plots from a completed run:
 python -m benchmarks.plot_k results/k_sweep/runtime.csv --speedup
 ```
 
+### Imported Fashion-MNIST console medians
+
+`data/benchmarks/fashion_mnist_console_medians.csv` was extracted from the uploaded
+`Pasted markdown(1).md` log of `python -m benchmarks.sweep_k --speedup`.
+The source reports Fashion-MNIST, N=70000, D=784, smoke=False. Only complete
+`K=... implementation: median ...s` lines count as results; progress-bar elapsed
+times and rates are excluded. The K=64 PyTorch GPU median (0.157666s) was supplied
+in a follow-up message. All 18 measured runtime strings retain the exact
+six decimal places printed in the log. No individual run timings or uncertainty
+estimates can be recovered from these summaries.
+
+The CSV has 21 rows covering the seven configured K values and three implementations.
+Missing results have `status=missing` and empty numeric fields for all
+implementations at K=128. A completed 6/6 progress bar is insufficient
+without the final median line. Missing entries are placeholders, not measurements.
+
+For the same K, `speedup_vs_numpy_cpu` is NumPy CPU median / row median;
+`speedup_vs_pytorch_gpu` is PyTorch GPU median / row median. Both are dimensionless:
+greater than 1 means the row implementation is faster than the named baseline.
+Ratios are derived from the printed medians and rounded to 12 decimal places;
+they do not recover the runner's unprinted precision. If either median is missing,
+the corresponding speedup is blank.
+
+The CSV is already saved in this checkout. In another checkout, copy it to
+`data/benchmarks/fashion_mnist_console_medians.csv`. From the repository root,
+load it using the Python standard library:
+
+```python
+import csv
+from pathlib import Path
+
+path = Path("data/benchmarks/fashion_mnist_console_medians.csv")
+with path.open(newline="") as stream:
+    rows = list(csv.DictReader(stream))
+completed = [row for row in rows if row["status"] == "completed"]
+# Convert a runtime when needed; keeping strings preserves logged decimal digits.
+seconds = float(completed[0]["median_runtime_seconds"])
+```
+
+Plot runtime versus K without rerunning the benchmark:
+
+```bash
+python -m benchmarks.plot_medians data/benchmarks/fashion_mnist_console_medians.csv
+```
+
+This writes `fashion_mnist_console_medians_runtime_vs_k.png` beside the CSV.
+Both axes use logarithmic scales so the CPU and GPU curves remain visible.
+Missing values remain gaps; K=128 stays labeled with no measured points.
+There are no error bars because the log provides only medians. Use this dedicated
+plotter for the imported summary: `benchmarks.plot_k` expects per-run `seconds`
+and calculates run standard deviations, so the schemas are intentionally distinct.
+
 ### Correctness checks
 
 Every timed result is checked outside timing for exactly 20 updates, float32 finite
@@ -179,3 +231,11 @@ The implementation scripts also remain runnable as Fashion-MNIST single-run
 demonstrations. The K-sweep now defaults to that same dataset but applies the fixed
 20-iteration, five-run protocol. Earlier single-run Fashion-MNIST measurements are not comparable to this
 protocol and have been removed from the result presentation.
+
+## Numba CUDA variants and dedicated sweep
+
+The independent `v2_0`–`v2_5` implementations and Numba-only Fashion-MNIST sweep
+are documented in [docs/numba_cuda.md](docs/numba_cuda.md), including timing
+boundaries, correctness checks, and exact Colab GPU commands. Run
+`python -m benchmarks.sweep_numba --speedup` on NVIDIA CUDA; it uses
+K={2,4,8,16,32,64}, 20 fixed iterations and five warmed synchronized measurements.
