@@ -94,7 +94,7 @@ class FixedWorkTests(unittest.TestCase):
 
     def test_smoke_produces_only_requested_plots_and_five_runs(self):
         with tempfile.TemporaryDirectory() as folder:
-            rows = run_sweep(folder, dataset="synthetic", cpu_only=True, smoke=True, speedup=True)
+            rows = run_sweep(folder, dataset="synthetic", cpu_only=True, smoke=True, no_progress=True, speedup=True)
             self.assertEqual(len(rows), 20)
             self.assertEqual({p.name for p in Path(folder).glob('*.png')},
                              {'runtime_vs_k.png', 'speedup_vs_k.png'})
@@ -102,7 +102,7 @@ class FixedWorkTests(unittest.TestCase):
             plot_results(Path(folder) / 'runtime.csv')
             self.assertEqual({p.name for p in Path(folder).glob('*.png')}, {'runtime_vs_k.png'})
             with self.assertRaises(ValueError):
-                run_sweep(folder, dataset="synthetic", cpu_only=True, smoke=True)
+                run_sweep(folder, dataset="synthetic", cpu_only=True, smoke=True, no_progress=True)
 
     def test_cli_defaults_to_fashion_mnist(self):
         with patch('sys.argv', ['sweep_k']), patch('benchmarks.sweep_k.run_sweep') as run:
@@ -131,7 +131,7 @@ class FixedWorkTests(unittest.TestCase):
         X = np.random.default_rng(3).random((40, 7), dtype=np.float32)
         with tempfile.TemporaryDirectory() as folder, patch.object(
                 numpy_impl, 'load_fashion_mnist', return_value=(X, np.zeros(40))):
-            rows = run_sweep(folder, cpu_only=True, smoke=True)
+            rows = run_sweep(folder, cpu_only=True, smoke=True, no_progress=True)
             metadata = json.loads((Path(folder) / 'environment.json').read_text())
         self.assertEqual(metadata['dataset'], 'fashion-mnist')
         self.assertEqual((metadata['n'], metadata['d']), X.shape)

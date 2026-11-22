@@ -53,6 +53,12 @@ from `np.random.default_rng(42)`. A Fashion-MNIST download error stops the run; 
 does not fall back to synthetic data. `environment.json` records the dataset,
 preprocessing, and actual N/D so results from the two datasets stay distinguishable.
 
+Progress bars show the overall number of implementation/K configurations and the
+current K, implementation, warmup, timed run, and correctness-validation stage.
+Each configuration has six fits: one warmup and five timed runs. Progress updates
+happen outside the measured region; the 20-iteration algorithm loops are unchanged.
+Use `--no-progress` to hide bars when saving terminal output.
+
 Fixed protocol:
 
 - `K = [2, 4, 8, 16, 32, 64, 128]`. N/D follow the selected dataset as described above.
