@@ -35,16 +35,29 @@ Install a CUDA-enabled PyTorch build appropriate to the NVIDIA machine. The defa
 command requires CUDA and fails explicitly if it is unavailable. It never substitutes
 CPU PyTorch timings for GPU timings.
 
-**Dataset:** the K-sweep uses synthetic data to retain the requested N=100000, D=32.
-It does not use Fashion-MNIST. Fashion-MNIST has 70000 rows and 784 features and
-remains available in the standalone demonstrations; no sampling or dimensionality
-reduction is silently applied. No dataset download is required for the sweep.
+**Default dataset: Fashion-MNIST.** The benchmark uses all 70000 images and all
+784 pixel features, converted to float32 and divided by 255 by the existing loader.
+Class labels are unused. The first run downloads OpenML Fashion-MNIST v1 into
+`datasets/`; subsequent runs reuse the cache. Dataset loading and preprocessing are
+outside timing. No resampling or dimensionality reduction is applied.
+
+Select the dataset explicitly with:
+
+```bash
+python -m benchmarks.sweep_k --dataset fashion-mnist --speedup
+python -m benchmarks.sweep_k --dataset synthetic --speedup --output results/synthetic
+```
+
+The synthetic option retains N=100000, D=32, using a standard-normal float32 input
+from `np.random.default_rng(42)`. A Fashion-MNIST download error stops the run; it
+does not fall back to synthetic data. `environment.json` records the dataset,
+preprocessing, and actual N/D so results from the two datasets stay distinguishable.
 
 Fixed protocol:
 
-- `K = [2, 4, 8, 16, 32, 64, 128]`, `N = 100000`, `D = 32`.
-- One standard-normal float32 input generated with `np.random.default_rng(42)`.
-  For each K, initial centroids are the same input rows selected with
+- `K = [2, 4, 8, 16, 32, 64, 128]`. N/D follow the selected dataset as described above.
+- All implementations receive the same preprocessed float32 input. For each K,
+  initial centroids are the same input rows selected with
   `np.random.RandomState(42).choice(..., replace=False)` for every implementation/run.
 - Exactly **20 Lloyd assignment/update iterations**, then a final assignment and
   squared-residual inertia calculation. Early stopping is disabled explicitly.
@@ -98,7 +111,8 @@ python -m benchmarks.plot_k results/k_sweep/runtime.csv --speedup
 
 Every timed result is checked outside timing for exactly 20 updates, float32 finite
 centroids, integer labels in range, and final nearest-centroid assignments. An
-independent float64 calculation, in batches of 1024 rows, checks selected squared
+independent float64 calculation, in batches of up to 1024 rows (smaller for large
+K/D to bound validation memory), checks selected squared
 distances against the minimum (`rtol=2e-5`, `atol=2e-5`) and verifies reported inertia
 at the same tolerance. Objective agreement with the first NumPy run at that K uses
 `rtol=0.005`, `atol=1e-4`. This allows small floating-point trajectory differences;
@@ -111,27 +125,36 @@ empty clusters, unchanged default stopping behavior, and rejection of wrong labe
 
 ```bash
 python -m unittest discover -s tests -v
-python -m benchmarks.sweep_k --cpu-only --smoke --output results/smoke
-python -m benchmarks.sweep_k --cpu-only --speedup --output results/k_sweep_cpu
+python -m benchmarks.sweep_k --cpu-only --smoke --output results/fashion_smoke
+python -m benchmarks.sweep_k --dataset synthetic --cpu-only --smoke --output results/synthetic_smoke
 ```
 
-`--smoke` explicitly changes only the problem shape to N=256, D=4, K=[2,4]; it still
-uses 20 iterations and five timed runs. These are test results, not full-size results.
+`--smoke` uses K=[2,4] and 256 rows. With Fashion-MNIST it selects the first
+256 images and retains all 784 features; with synthetic data it uses N=256, D=4.
+It still uses 20 iterations and five timed runs. Smoke results are tests, not
+full-size measurements. Fashion-MNIST smoke runs still need the download/cache.
 `--cpu-only` explicitly produces a partial comparison containing the two CPU curves.
 
 Local verification uses macOS ARM64, Python 3.12, scikit-learn 1.5.1 and PyTorch 2.8.0.
-Seven local tests passed; the CUDA test is skipped when NVIDIA CUDA is unavailable.
+Dataset selection is checked with a controlled Fashion-MNIST loader fixture, including
+the default CLI selection, retained features, recorded shape, and no fallback on
+download failure. Synthetic mode is checked without any Fashion-MNIST fetch.
+The CUDA test is skipped when NVIDIA CUDA is unavailable.
 The PyTorch baseline was tested on CPU for logical correctness. This does not validate
 CUDA execution or GPU performance. Run the full test suite and benchmark on an
 NVIDIA machine before reporting GPU results.
 
-The complete CPU sweep passed validation for all seven K values (70 timed runs).
+The earlier complete **synthetic** CPU sweep passed validation for all seven K values (70 timed runs).
 Its local artifacts are in `results/k_sweep_cpu/`. At K=128, median runtimes were
 12.6672 seconds for NumPy and 0.7915 seconds for scikit-learn on this machine, with
 one CPU thread. These CPU-only measurements do not establish GPU speedup.
 
-The NumPy broadcast implementation can allocate several
-GB at K=128; it is deliberately preserved rather than replaced by another algorithm.
+The NumPy broadcast implementation is preserved. On full Fashion-MNIST at K=128,
+just one N × K × D float32 array is about 28 GB (26 GiB), and simultaneous
+subtraction/squaring temporaries can require over 50 GB before other allocations.
+Use a machine with sufficient RAM for the full comparison; `--smoke` is the small
+functional check. Full Fashion-MNIST performance and CUDA execution have not been
+validated locally.
 
 ## Layout
 
@@ -143,7 +166,7 @@ tests/test_benchmark.py        # Correctness, iteration, output, and CUDA integr
 requirements.txt              # CPU/PyTorch dependencies
 ```
 
-The original implementation scripts remain runnable and retain their Fashion-MNIST
-single-run demonstrations. Those demonstrations are separate from the synthetic
-K-sweep. Earlier single-run Fashion-MNIST measurements are not comparable to this
+The implementation scripts also remain runnable as Fashion-MNIST single-run
+demonstrations. The K-sweep now defaults to that same dataset but applies the fixed
+20-iteration, five-run protocol. Earlier single-run Fashion-MNIST measurements are not comparable to this
 protocol and have been removed from the result presentation.

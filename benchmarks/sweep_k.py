@@ -25,8 +25,9 @@ def validate_result(X, result, k, iterations, reference_inertia=None):
     assert np.isfinite(centers).all() and np.isfinite(inertia)
     assert np.all((labels >= 0) & (labels < k))
     objective = 0.0
-    for start in range(0, len(X), 1024):
-        batch = X[start:start + 1024].astype(np.float64)
+    batch_size = max(1, min(1024, (16 * 1024**2) // (k * X.shape[1] * 8)))
+    for start in range(0, len(X), batch_size):
+        batch = X[start:start + batch_size].astype(np.float64)
         distances = ((batch[:, None] - centers.astype(np.float64)) ** 2).sum(axis=2)
         selected = distances[np.arange(len(batch)), labels[start:start + len(batch)]]
         np.testing.assert_allclose(selected, distances.min(axis=1), rtol=2e-5, atol=2e-5)
@@ -42,16 +43,35 @@ def as_result(model):
     return model.labels_, model.cluster_centers_, model.n_iter_, False, model.inertia_
 
 
-def run_sweep(output, *, cpu_only=False, smoke=False, threads=1, speedup=False):
+def load_benchmark_data(dataset="fashion-mnist", *, smoke=False):
+    """Load/preprocess once, outside timing. Never substitute another dataset."""
+    if dataset == "fashion-mnist":
+        X, _ = numpy_impl.load_fashion_mnist()
+        if smoke:
+            X = X[:256]  # Keep all image features.
+        preprocessing = "OpenML Fashion-MNIST v1; float32 pixels / 255; labels unused"
+    elif dataset == "synthetic":
+        n, d = (256, 4) if smoke else (N, D)
+        X = np.random.default_rng(42).standard_normal((n, d), dtype=np.float32)
+        preprocessing = "standard normal; np.random.default_rng(42)"
+    else:
+        raise ValueError(f"Unknown dataset: {dataset}")
+    return np.ascontiguousarray(X, dtype=np.float32), preprocessing
+
+
+def run_sweep(output, *, dataset="fashion-mnist", cpu_only=False, smoke=False,
+              threads=1, speedup=False):
     output = Path(output)
     output.mkdir(parents=True, exist_ok=True)
     if any(output.iterdir()):
         raise ValueError(f"Use an empty output directory: {output}")
-    n, d, ks = (256, 4, (2, 4)) if smoke else (N, D, K_VALUES)
-    X = np.random.default_rng(42).standard_normal((n, d), dtype=np.float32)
+    X, preprocessing = load_benchmark_data(dataset, smoke=smoke)
+    n, d = X.shape
+    ks = (2, 4) if smoke else K_VALUES
+    print(f"Dataset: {dataset}; N={n}, D={d}; smoke={smoke}", flush=True)
     metadata = dict(n=n, d=d, k=list(ks), iterations=ITERATIONS, runs=RUNS,
                     warmups=1, seed=42, threads=threads, smoke=smoke,
-                    dataset="synthetic standard normal",
+                    dataset=dataset, preprocessing=preprocessing,
                     implementations=["NumPy CPU", "scikit-learn CPU"] + ([] if cpu_only else
                         ["PyTorch GPU"]),
                     platform=platform.platform(), cpu=platform.processor(),
@@ -120,14 +140,16 @@ def run_sweep(output, *, cpu_only=False, smoke=False, threads=1, speedup=False):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, default=Path("results/k_sweep"))
+    parser.add_argument("--dataset", choices=("fashion-mnist", "synthetic"),
+                        default="fashion-mnist", help="Default: full Fashion-MNIST; synthetic uses N=100000, D=32")
     parser.add_argument("--cpu-only", action="store_true")
-    parser.add_argument("--smoke", action="store_true", help="N=256, D=4, K=2,4; still 20 iterations and five runs")
+    parser.add_argument("--smoke", action="store_true", help="K=2,4 and 256 rows; Fashion-MNIST keeps all features, synthetic uses D=4")
     parser.add_argument("--threads", type=int, default=1)
     parser.add_argument("--speedup", action="store_true")
     args = parser.parse_args()
     if args.threads < 1:
         parser.error("--threads must be positive")
-    run_sweep(args.output, cpu_only=args.cpu_only, smoke=args.smoke,
+    run_sweep(args.output, dataset=args.dataset, cpu_only=args.cpu_only, smoke=args.smoke,
               threads=args.threads, speedup=args.speedup)
 
 

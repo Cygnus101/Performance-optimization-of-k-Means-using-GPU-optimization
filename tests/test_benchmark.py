@@ -1,4 +1,5 @@
 import tempfile
+import json
 import unittest
 from unittest.mock import patch
 from pathlib import Path
@@ -9,7 +10,7 @@ from threadpoolctl import threadpool_limits
 from implementations import vectorized_implementation as numpy_impl
 from implementations import scikit_implementation as sklearn_impl
 from implementations import pytorch_implementation as pytorch_impl
-from benchmarks.sweep_k import as_result, validate_result, run_sweep
+from benchmarks.sweep_k import as_result, validate_result, run_sweep, load_benchmark_data, main
 
 
 class FixedWorkTests(unittest.TestCase):
@@ -93,7 +94,7 @@ class FixedWorkTests(unittest.TestCase):
 
     def test_smoke_produces_only_requested_plots_and_five_runs(self):
         with tempfile.TemporaryDirectory() as folder:
-            rows = run_sweep(folder, cpu_only=True, smoke=True, speedup=True)
+            rows = run_sweep(folder, dataset="synthetic", cpu_only=True, smoke=True, speedup=True)
             self.assertEqual(len(rows), 20)
             self.assertEqual({p.name for p in Path(folder).glob('*.png')},
                              {'runtime_vs_k.png', 'speedup_vs_k.png'})
@@ -101,7 +102,46 @@ class FixedWorkTests(unittest.TestCase):
             plot_results(Path(folder) / 'runtime.csv')
             self.assertEqual({p.name for p in Path(folder).glob('*.png')}, {'runtime_vs_k.png'})
             with self.assertRaises(ValueError):
-                run_sweep(folder, cpu_only=True, smoke=True)
+                run_sweep(folder, dataset="synthetic", cpu_only=True, smoke=True)
+
+    def test_cli_defaults_to_fashion_mnist(self):
+        with patch('sys.argv', ['sweep_k']), patch('benchmarks.sweep_k.run_sweep') as run:
+            main()
+        self.assertEqual(run.call_args.kwargs['dataset'], 'fashion-mnist')
+
+    def test_default_dataset_uses_fashion_loader_and_preserves_features(self):
+        X = np.random.default_rng(2).random((300, 784), dtype=np.float32)
+        with patch.object(numpy_impl, 'load_fashion_mnist', return_value=(X, np.zeros(300))) as load:
+            full, _ = load_benchmark_data()
+            small, _ = load_benchmark_data(smoke=True)
+        self.assertEqual(load.call_count, 2)
+        np.testing.assert_array_equal(full, X)
+        np.testing.assert_array_equal(small, X[:256])
+        self.assertEqual(small.shape, (256, 784))
+
+    def test_synthetic_option_does_not_fetch_data(self):
+        with patch.object(numpy_impl, 'load_fashion_mnist') as load:
+            X, _ = load_benchmark_data('synthetic')
+        load.assert_not_called()
+        self.assertEqual(X.shape, (100000, 32))
+        self.assertEqual(X.dtype, np.float32)
+
+    def test_fashion_sweep_records_actual_dataset_and_shape(self):
+        # Small loader fixture exercises the real runner without a download.
+        X = np.random.default_rng(3).random((40, 7), dtype=np.float32)
+        with tempfile.TemporaryDirectory() as folder, patch.object(
+                numpy_impl, 'load_fashion_mnist', return_value=(X, np.zeros(40))):
+            rows = run_sweep(folder, cpu_only=True, smoke=True)
+            metadata = json.loads((Path(folder) / 'environment.json').read_text())
+        self.assertEqual(metadata['dataset'], 'fashion-mnist')
+        self.assertEqual((metadata['n'], metadata['d']), X.shape)
+        self.assertIn('pixels / 255', metadata['preprocessing'])
+        self.assertEqual(len(rows), 20)
+
+    def test_fashion_download_failure_does_not_fall_back(self):
+        with patch.object(numpy_impl, 'load_fashion_mnist', side_effect=OSError('offline')):
+            with self.assertRaisesRegex(OSError, 'offline'):
+                load_benchmark_data()
 
     @unittest.skipUnless(torch.cuda.is_available(), 'NVIDIA CUDA unavailable')
     def test_cuda_fixed_work(self):
