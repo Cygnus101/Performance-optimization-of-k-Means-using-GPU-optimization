@@ -51,6 +51,9 @@ def run_sweep(output, *, cpu_only=False, smoke=False, threads=1, speedup=False):
     X = np.random.default_rng(42).standard_normal((n, d), dtype=np.float32)
     metadata = dict(n=n, d=d, k=list(ks), iterations=ITERATIONS, runs=RUNS,
                     warmups=1, seed=42, threads=threads, smoke=smoke,
+                    dataset="synthetic standard normal",
+                    implementations=["NumPy CPU", "scikit-learn CPU"] + ([] if cpu_only else
+                        ["PyTorch GPU"]),
                     platform=platform.platform(), cpu=platform.processor(),
                     python=platform.python_version(), dtype="float32",
                     timing="fit including final assignment/inertia; excludes input transfer and validation",
@@ -61,8 +64,7 @@ def run_sweep(output, *, cpu_only=False, smoke=False, threads=1, speedup=False):
         import torch
         if not torch.cuda.is_available():
             raise RuntimeError("CUDA unavailable. Use --cpu-only for explicitly partial CPU results.")
-        from implementations import pytorch_v0_implementation as v0
-        from implementations import pytorch_v1_implementation as v1
+        from implementations import pytorch_implementation as pytorch_impl
         torch.backends.cuda.matmul.allow_tf32 = False
         torch.backends.cudnn.allow_tf32 = False
         torch.set_float32_matmul_precision("highest")
@@ -84,8 +86,7 @@ def run_sweep(output, *, cpu_only=False, smoke=False, threads=1, speedup=False):
                         X, **kwargs, n_threads=threads)), False)]
             if torch is not None:
                 gpu_kwargs = dict(kwargs, initial_centroids=torch.as_tensor(initial, device=device))
-                fits.extend([("PyTorch V0", lambda: v0.kmeans(samples, **gpu_kwargs), True),
-                             ("PyTorch V1", lambda: v1.kmeans(samples, **gpu_kwargs), True)])
+                fits.append(("PyTorch GPU", lambda: pytorch_impl.kmeans(samples, **gpu_kwargs), True))
             reference = None
             for name, fit, gpu in fits:
                 fit()  # One full configuration warmup, excluded from the five runs.

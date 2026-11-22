@@ -1,8 +1,8 @@
 # Performance Optimization of K-Means Using GPU Computing
 
-Compare runtime as the number of clusters increases for the existing NumPy CPU,
-scikit-learn CPU, PyTorch V0, and PyTorch V1 implementations. **Numba V2 is not
-implemented and is excluded.** No GPU performance claim is made until measured on CUDA.
+Compare runtime as the number of clusters increases for NumPy CPU, scikit-learn
+CPU, and one PyTorch GPU library baseline. No GPU performance claim is made until
+measured on CUDA.
 
 ## Implementations
 
@@ -10,13 +10,17 @@ implemented and is excluded.** No GPU performance claim is made until measured o
 | --- | --- | --- |
 | [NumPy CPU](implementations/vectorized_implementation.py) | Broadcast Euclidean distances | NumPy cluster means |
 | [scikit-learn CPU](implementations/scikit_implementation.py) | Compiled scikit-learn Lloyd routine | Compiled scikit-learn Lloyd routine |
-| [PyTorch V0](implementations/pytorch_v0_implementation.py) | `torch.cdist`, matrix multiplication path disabled | Tensor sums/counts via `index_add_` |
-| [PyTorch V1](implementations/pytorch_v1_implementation.py) | `torch.addmm`: centroid squared norm minus twice the dot product | Same as V0 |
+| [PyTorch GPU](implementations/pytorch_implementation.py) | Matrix multiplication using `torch.addmm`, followed by `argmin` | Tensor sums/counts via `index_add_` |
 
-V1 omits the sample norm because it is constant across candidate centroids.
-Inertia validation uses actual squared residuals. NumPy, V0, and V1 retain previous
-centroids for empty clusters; scikit-learn retains its own relocation policy.
-The algorithms and existing default early-stopping behavior are preserved.
+All three use Lloyd's algorithm. The former V0/V1 files have been consolidated into
+`pytorch_implementation.py`. The GPU baseline uses matrix multiplication to compute
+centroid squared norms minus twice the sample-centroid dot products. The sample
+norm is omitted because it does not affect the nearest-centroid decision. Final
+inertia uses actual squared residuals. Assignment stores an N × K score matrix.
+This is a library-based CPU/GPU comparison, not a claim of a novel GPU algorithm.
+
+NumPy and PyTorch retain previous centroids for empty clusters; scikit-learn retains
+its relocation policy. CPU algorithms and default early stopping are unchanged.
 
 ## The benchmark
 
@@ -29,7 +33,12 @@ python -m benchmarks.sweep_k --speedup
 
 Install a CUDA-enabled PyTorch build appropriate to the NVIDIA machine. The default
 command requires CUDA and fails explicitly if it is unavailable. It never substitutes
-CPU PyTorch timings for GPU timings. No dataset download is required.
+CPU PyTorch timings for GPU timings.
+
+**Dataset:** the K-sweep uses synthetic data to retain the requested N=100000, D=32.
+It does not use Fashion-MNIST. Fashion-MNIST has 70000 rows and 784 features and
+remains available in the standalone demonstrations; no sampling or dimensionality
+reduction is silently applied. No dataset download is required for the sweep.
 
 Fixed protocol:
 
@@ -110,11 +119,11 @@ python -m benchmarks.sweep_k --cpu-only --speedup --output results/k_sweep_cpu
 uses 20 iterations and five timed runs. These are test results, not full-size results.
 `--cpu-only` explicitly produces a partial comparison containing the two CPU curves.
 
-Local verification used macOS ARM64, Python 3.12, scikit-learn 1.5.1 and PyTorch 2.8.0.
-Seven tests passed and the CUDA test was skipped. V0/V1 were tested on CPU for logical
-correctness; this does **not** validate CUDA execution, synchronization performance,
-or GPU speedup. Run the default full benchmark and the CUDA test on an NVIDIA GPU
-before reporting GPU results.
+Local verification uses macOS ARM64, Python 3.12, scikit-learn 1.5.1 and PyTorch 2.8.0.
+Seven local tests passed; the CUDA test is skipped when NVIDIA CUDA is unavailable.
+The PyTorch baseline was tested on CPU for logical correctness. This does not validate
+CUDA execution or GPU performance. Run the full test suite and benchmark on an
+NVIDIA machine before reporting GPU results.
 
 The complete CPU sweep passed validation for all seven K values (70 timed runs).
 Its local artifacts are in `results/k_sweep_cpu/`. At K=128, median runtimes were
@@ -127,11 +136,11 @@ GB at K=128; it is deliberately preserved rather than replaced by another algori
 ## Layout
 
 ```text
-implementations/              # Original algorithms; optional fixed-work controls
+implementations/              # CPU algorithms and one PyTorch baseline
 benchmarks/sweep_k.py          # Shared data, initialization, timing, validation
 benchmarks/plot_k.py           # Runtime and optional speedup figures only
-tests/test_benchmark.py        # Correctness, iteration, output, and CUDA checks
-requirements.txt
+tests/test_benchmark.py        # Correctness, iteration, output, and CUDA integration
+requirements.txt              # CPU/PyTorch dependencies
 ```
 
 The original implementation scripts remain runnable and retain their Fashion-MNIST

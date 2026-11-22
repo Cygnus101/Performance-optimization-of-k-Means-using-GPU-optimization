@@ -1,4 +1,4 @@
-"""V0 K-Means with PyTorch's direct Euclidean distance computation."""
+"""PyTorch library baseline: GEMM assignment and tensor centroid updates."""
 
 from math import isfinite
 from time import perf_counter
@@ -13,9 +13,9 @@ else:
 
 
 def _assign_labels(X, centroids):
-    return torch.cdist(
-        X, centroids, p=2, compute_mode="donot_use_mm_for_euclid_dist"
-    ).argmin(dim=1)
+    # The sample norm does not affect the nearest-centroid decision.
+    scores = torch.addmm(centroids.square().sum(dim=1), X, centroids.T, alpha=-2)
+    return scores.argmin(dim=1)
 
 
 def kmeans(X, num_clusters=10, num_iterations=100, threshold=1e-4, *,
@@ -73,7 +73,7 @@ def _fit_kmeans(X, num_clusters, num_iterations, threshold, assign_labels, *,
 
 
 def main():
-    _run_cuda_benchmark(kmeans, "V0")
+    _run_cuda_benchmark(kmeans, "baseline")
 
 
 def _run_cuda_benchmark(fit, version):
