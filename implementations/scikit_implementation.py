@@ -11,16 +11,20 @@ else:
     from vectorized_implementation import load_fashion_mnist
 
 
-def kmeans(X, num_clusters=10, num_iterations=100, threshold=1e-4):
+def kmeans(X, num_clusters=10, num_iterations=100, threshold=1e-4, *,
+           initial_centroids=None, early_stopping=True, n_threads=1):
     """Return a fitted KMeans model using one run of Lloyd's algorithm.
 
     Scikit-learn's tolerance is relative and differs from the NumPy baseline's
     absolute centroid-shift threshold, even when their values are identical.
     """
 
-    rng = np.random.RandomState(42)
-    random_indices = rng.choice(X.shape[0], num_clusters, replace=False)
-    initial_centroids = X[random_indices].astype(np.result_type(X.dtype, np.float32))
+    if initial_centroids is None:
+        indices = np.random.RandomState(42).choice(X.shape[0], num_clusters, replace=False)
+        initial_centroids = X[indices]
+    initial_centroids = np.array(initial_centroids, dtype=np.result_type(X.dtype, np.float32), copy=True)
+    if initial_centroids.shape != (num_clusters, X.shape[1]) or not np.isfinite(initial_centroids).all():
+        raise ValueError("initial_centroids must be finite with shape (K, D).")
 
     model = KMeans(
         n_clusters=num_clusters,
@@ -31,7 +35,49 @@ def kmeans(X, num_clusters=10, num_iterations=100, threshold=1e-4):
         random_state=42,
         algorithm="lloyd",
     )
-    return model.fit(X)
+    if early_stopping:
+        return model.fit(X)
+    return _fit_fixed_lloyd(model, X, initial_centroids, num_iterations, n_threads)
+
+
+def _fit_fixed_lloyd(model, X, initial_centroids, num_iterations, n_threads):
+    """Use sklearn's compiled Lloyd steps without its unconditional label-stop.
+
+    This private API is deliberately isolated; incompatible releases fail loudly.
+    Empty clusters retain sklearn's relocation behavior.
+    """
+    from sklearn.cluster._k_means_lloyd import lloyd_iter_chunked_dense
+
+    X = np.array(X, dtype=initial_centroids.dtype, order="C", copy=True)
+    if X.ndim != 2 or not X.size or not np.isfinite(X).all():
+        raise ValueError("X must be a finite nonempty matrix.")
+    if not 1 <= model.n_clusters <= len(X) or num_iterations < 1 or n_threads < 1:
+        raise ValueError("Invalid clusters, iterations, or thread count.")
+    # Match sklearn's centering to improve numerical stability.
+    mean = X.mean(axis=0)
+    X -= mean
+    centers = np.ascontiguousarray(initial_centroids - mean)
+    new_centers = np.empty_like(centers)
+    weights = np.ones(len(X), dtype=X.dtype)
+    cluster_weights = np.zeros(model.n_clusters, dtype=X.dtype)
+    shifts = np.zeros(model.n_clusters, dtype=X.dtype)
+    labels = np.full(len(X), -1, dtype=np.int32)
+    for _ in range(num_iterations):
+        lloyd_iter_chunked_dense(X, weights, centers, new_centers,
+                                 cluster_weights, labels, shifts, n_threads)
+        centers, new_centers = new_centers, centers
+    lloyd_iter_chunked_dense(X, weights, centers, new_centers,
+                             cluster_weights, labels, shifts, n_threads,
+                             update_centers=False)
+    residuals = X - centers[labels]
+    model.inertia_ = float(np.sum(residuals * residuals, dtype=np.float64))
+    model.cluster_centers_ = centers + mean
+    model.labels_ = labels
+    model.n_iter_ = num_iterations
+    model.n_features_in_ = X.shape[1]
+    model._n_threads = n_threads
+    model._n_features_out = model.n_clusters
+    return model
 
 
 if __name__ == "__main__":

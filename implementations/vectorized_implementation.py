@@ -22,7 +22,8 @@ def load_fashion_mnist():                   #data loading function
 
     return X, y 
 
-def kmeans(X, num_clusters=10, num_iterations=100, threshold=1e-4):
+def kmeans(X, num_clusters=10, num_iterations=100, threshold=1e-4, *,
+           initial_centroids=None, early_stopping=True):
     """Return labels, centroids, iteration count, convergence status, and inertia."""
     if X.ndim != 2 or X.shape[0] == 0 or X.shape[1] == 0:
         raise ValueError("X must be a nonempty two-dimensional array.")
@@ -35,9 +36,12 @@ def kmeans(X, num_clusters=10, num_iterations=100, threshold=1e-4):
     if not np.isfinite(threshold) or threshold < 0:
         raise ValueError("threshold must be finite and nonnegative.")
 
-    np.random.seed(42)
-    random_indices = np.random.choice(X.shape[0], num_clusters, replace=False)
-    centroids = X[random_indices].astype(np.result_type(X.dtype, np.float32))
+    if initial_centroids is None:
+        indices = np.random.RandomState(42).choice(X.shape[0], num_clusters, replace=False)
+        initial_centroids = X[indices]
+    centroids = np.array(initial_centroids, dtype=np.result_type(X.dtype, np.float32), copy=True)
+    if centroids.shape != (num_clusters, X.shape[1]) or not np.isfinite(centroids).all():
+        raise ValueError("initial_centroids must be finite with shape (K, D).")
     converged = False
     for iteration in range(num_iterations):
         distances = np.linalg.norm(X[:, np.newaxis] - centroids, axis=2)
@@ -48,7 +52,7 @@ def kmeans(X, num_clusters=10, num_iterations=100, threshold=1e-4):
             if cluster_points.shape[0] > 0:
                 new_centroids[k] = cluster_points.mean(axis=0)
         
-        if np.linalg.norm(new_centroids - centroids) < threshold:
+        if early_stopping and np.linalg.norm(new_centroids - centroids) < threshold:
             centroids = new_centroids
             converged = True
             break

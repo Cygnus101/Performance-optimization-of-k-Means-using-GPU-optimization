@@ -15,9 +15,12 @@ def _assign_labels(X, centroids):
     return scores.argmin(dim=1)
 
 
-def kmeans(X, num_clusters=10, num_iterations=100, threshold=1e-4):
+def kmeans(X, num_clusters=10, num_iterations=100, threshold=1e-4, *,
+           initial_centroids=None, early_stopping=True):
     """Fit on X's device and return labels, centroids, iterations, convergence, and inertia."""
-    return _fit_kmeans(X, num_clusters, num_iterations, threshold, _assign_labels)
+    return _fit_kmeans(X, num_clusters, num_iterations, threshold, _assign_labels,
+                       initial_centroids=initial_centroids,
+                       early_stopping=early_stopping)
 
 
 def main():

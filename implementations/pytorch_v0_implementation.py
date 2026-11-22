@@ -18,13 +18,17 @@ def _assign_labels(X, centroids):
     ).argmin(dim=1)
 
 
-def kmeans(X, num_clusters=10, num_iterations=100, threshold=1e-4):
+def kmeans(X, num_clusters=10, num_iterations=100, threshold=1e-4, *,
+           initial_centroids=None, early_stopping=True):
     """Fit on X's device and return labels, centroids, iterations, convergence, and inertia."""
-    return _fit_kmeans(X, num_clusters, num_iterations, threshold, _assign_labels)
+    return _fit_kmeans(X, num_clusters, num_iterations, threshold, _assign_labels,
+                       initial_centroids=initial_centroids,
+                       early_stopping=early_stopping)
 
 
 @torch.no_grad()
-def _fit_kmeans(X, num_clusters, num_iterations, threshold, assign_labels):
+def _fit_kmeans(X, num_clusters, num_iterations, threshold, assign_labels, *,
+                initial_centroids=None, early_stopping=True):
     if X.ndim != 2 or X.numel() == 0:
         raise ValueError("X must be a nonempty two-dimensional tensor.")
     if X.dtype not in (torch.float32, torch.float64):
@@ -38,8 +42,12 @@ def _fit_kmeans(X, num_clusters, num_iterations, threshold, assign_labels):
     if not isfinite(threshold) or threshold < 0:
         raise ValueError("threshold must be finite and nonnegative.")
 
-    indices = np.random.RandomState(42).choice(X.shape[0], num_clusters, replace=False)
-    centroids = X[torch.as_tensor(indices, device=X.device)]
+    if initial_centroids is None:
+        indices = np.random.RandomState(42).choice(X.shape[0], num_clusters, replace=False)
+        initial_centroids = X[torch.as_tensor(indices, device=X.device)]
+    centroids = torch.as_tensor(initial_centroids, dtype=X.dtype, device=X.device).clone()
+    if centroids.shape != (num_clusters, X.shape[1]) or not torch.isfinite(centroids).all().item():
+        raise ValueError("initial_centroids must be finite with shape (K, D).")
     sample_counts = X.new_ones(X.shape[0])
     converged = False
 
@@ -51,10 +59,11 @@ def _fit_kmeans(X, num_clusters, num_iterations, threshold, assign_labels):
         means = sums / counts.clamp_min(1).unsqueeze(1)
         new_centroids = torch.where(counts.unsqueeze(1) > 0, means, centroids)
 
-        # Reading the scalar on the host makes the stopping decision each iteration.
-        shift = torch.linalg.vector_norm(new_centroids - centroids).item()
+        # Avoid a host synchronization per iteration in fixed-work benchmarks.
+        shift = (torch.linalg.vector_norm(new_centroids - centroids).item()
+                 if early_stopping else None)
         centroids = new_centroids
-        if shift < threshold:
+        if early_stopping and shift < threshold:
             converged = True
             break
 
