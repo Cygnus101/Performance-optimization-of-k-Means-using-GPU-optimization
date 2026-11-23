@@ -1,3 +1,7 @@
+if __package__:
+    from .profiling import stage
+else:
+    from profiling import stage
 from sklearn.datasets import fetch_openml
 from pathlib import Path
 from time import perf_counter
@@ -25,32 +29,35 @@ def load_fashion_mnist():                   #data loading function
 def kmeans(X, num_clusters=10, num_iterations=100, threshold=1e-4, *,
            initial_centroids=None, early_stopping=True):
     """Return labels, centroids, iteration count, convergence status, and inertia."""
-    if X.ndim != 2 or X.shape[0] == 0 or X.shape[1] == 0:
-        raise ValueError("X must be a nonempty two-dimensional array.")
-    if not np.isfinite(X).all():
-        raise ValueError("X must contain only finite values.")
-    if not 1 <= num_clusters <= X.shape[0]:
-        raise ValueError("num_clusters must be between 1 and the number of samples.")
-    if num_iterations < 1:
-        raise ValueError("num_iterations must be positive.")
-    if not np.isfinite(threshold) or threshold < 0:
-        raise ValueError("threshold must be finite and nonnegative.")
+    with stage("initial_work", device=False):
+        if X.ndim != 2 or X.shape[0] == 0 or X.shape[1] == 0:
+            raise ValueError("X must be a nonempty two-dimensional array.")
+        if not np.isfinite(X).all():
+            raise ValueError("X must contain only finite values.")
+        if not 1 <= num_clusters <= X.shape[0]:
+            raise ValueError("num_clusters must be between 1 and the number of samples.")
+        if num_iterations < 1:
+            raise ValueError("num_iterations must be positive.")
+        if not np.isfinite(threshold) or threshold < 0:
+            raise ValueError("threshold must be finite and nonnegative.")
 
-    if initial_centroids is None:
-        indices = np.random.RandomState(42).choice(X.shape[0], num_clusters, replace=False)
-        initial_centroids = X[indices]
-    centroids = np.array(initial_centroids, dtype=np.result_type(X.dtype, np.float32), copy=True)
-    if centroids.shape != (num_clusters, X.shape[1]) or not np.isfinite(centroids).all():
-        raise ValueError("initial_centroids must be finite with shape (K, D).")
+        if initial_centroids is None:
+            indices = np.random.RandomState(42).choice(X.shape[0], num_clusters, replace=False)
+            initial_centroids = X[indices]
+        centroids = np.array(initial_centroids, dtype=np.result_type(X.dtype, np.float32), copy=True)
+        if centroids.shape != (num_clusters, X.shape[1]) or not np.isfinite(centroids).all():
+            raise ValueError("initial_centroids must be finite with shape (K, D).")
     converged = False
     for iteration in range(num_iterations):
-        distances = np.linalg.norm(X[:, np.newaxis] - centroids, axis=2)
-        labels = np.argmin(distances, axis=1)
-        new_centroids = centroids.copy()
-        for k in range(num_clusters):
-            cluster_points = X[labels == k]
-            if cluster_points.shape[0] > 0:
-                new_centroids[k] = cluster_points.mean(axis=0)
+        with stage("assignment", device=False, step=iteration + 1):
+            distances = np.linalg.norm(X[:, np.newaxis] - centroids, axis=2)
+            labels = np.argmin(distances, axis=1)
+        with stage("centroid_update", device=False, step=iteration + 1):
+            new_centroids = centroids.copy()
+            for k in range(num_clusters):
+                cluster_points = X[labels == k]
+                if cluster_points.shape[0] > 0:
+                    new_centroids[k] = cluster_points.mean(axis=0)
         
         if early_stopping and np.linalg.norm(new_centroids - centroids) < threshold:
             centroids = new_centroids
@@ -58,10 +65,11 @@ def kmeans(X, num_clusters=10, num_iterations=100, threshold=1e-4, *,
             break
         centroids = new_centroids
 
-    distances = np.linalg.norm(X[:, np.newaxis] - centroids, axis=2)
-    labels = np.argmin(distances, axis=1)
-    residuals = X - centroids[labels]
-    inertia = float(np.sum(residuals * residuals, dtype=np.float64))
+    with stage("final_assignment_inertia", device=False):
+        distances = np.linalg.norm(X[:, np.newaxis] - centroids, axis=2)
+        labels = np.argmin(distances, axis=1)
+        residuals = X - centroids[labels]
+        inertia = float(np.sum(residuals * residuals, dtype=np.float64))
 
     return labels, centroids, iteration + 1, converged, inertia
 

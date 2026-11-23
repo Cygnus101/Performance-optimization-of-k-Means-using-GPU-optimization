@@ -1,4 +1,8 @@
 """PyTorch library baseline: GEMM assignment and tensor centroid updates."""
+if __package__:
+    from .profiling import stage
+else:
+    from profiling import stage
 
 from math import isfinite
 from time import perf_counter
@@ -29,35 +33,38 @@ def kmeans(X, num_clusters=10, num_iterations=100, threshold=1e-4, *,
 @torch.no_grad()
 def _fit_kmeans(X, num_clusters, num_iterations, threshold, assign_labels, *,
                 initial_centroids=None, early_stopping=True):
-    if X.ndim != 2 or X.numel() == 0:
-        raise ValueError("X must be a nonempty two-dimensional tensor.")
-    if X.dtype not in (torch.float32, torch.float64):
-        raise ValueError("X must use float32 or float64.")
-    if not torch.isfinite(X).all().item():
-        raise ValueError("X must contain only finite values.")
-    if not 1 <= num_clusters <= X.shape[0]:
-        raise ValueError("num_clusters must be between 1 and the number of samples.")
-    if num_iterations < 1:
-        raise ValueError("num_iterations must be positive.")
-    if not isfinite(threshold) or threshold < 0:
-        raise ValueError("threshold must be finite and nonnegative.")
+    with stage("initial_work", device=True):
+        if X.ndim != 2 or X.numel() == 0:
+            raise ValueError("X must be a nonempty two-dimensional tensor.")
+        if X.dtype not in (torch.float32, torch.float64):
+            raise ValueError("X must use float32 or float64.")
+        if not torch.isfinite(X).all().item():
+            raise ValueError("X must contain only finite values.")
+        if not 1 <= num_clusters <= X.shape[0]:
+            raise ValueError("num_clusters must be between 1 and the number of samples.")
+        if num_iterations < 1:
+            raise ValueError("num_iterations must be positive.")
+        if not isfinite(threshold) or threshold < 0:
+            raise ValueError("threshold must be finite and nonnegative.")
 
-    if initial_centroids is None:
-        indices = np.random.RandomState(42).choice(X.shape[0], num_clusters, replace=False)
-        initial_centroids = X[torch.as_tensor(indices, device=X.device)]
-    centroids = torch.as_tensor(initial_centroids, dtype=X.dtype, device=X.device).clone()
-    if centroids.shape != (num_clusters, X.shape[1]) or not torch.isfinite(centroids).all().item():
-        raise ValueError("initial_centroids must be finite with shape (K, D).")
-    sample_counts = X.new_ones(X.shape[0])
+        if initial_centroids is None:
+            indices = np.random.RandomState(42).choice(X.shape[0], num_clusters, replace=False)
+            initial_centroids = X[torch.as_tensor(indices, device=X.device)]
+        centroids = torch.as_tensor(initial_centroids, dtype=X.dtype, device=X.device).clone()
+        if centroids.shape != (num_clusters, X.shape[1]) or not torch.isfinite(centroids).all().item():
+            raise ValueError("initial_centroids must be finite with shape (K, D).")
+        sample_counts = X.new_ones(X.shape[0])
     converged = False
 
     for iteration in range(1, num_iterations + 1):
-        labels = assign_labels(X, centroids)
+        with stage("assignment", device=True, step=iteration):
+            labels = assign_labels(X, centroids)
 
-        sums = torch.zeros_like(centroids).index_add_(0, labels, X)
-        counts = X.new_zeros(num_clusters).index_add_(0, labels, sample_counts)
-        means = sums / counts.clamp_min(1).unsqueeze(1)
-        new_centroids = torch.where(counts.unsqueeze(1) > 0, means, centroids)
+        with stage("centroid_update", device=True, step=iteration):
+            sums = torch.zeros_like(centroids).index_add_(0, labels, X)
+            counts = X.new_zeros(num_clusters).index_add_(0, labels, sample_counts)
+            means = sums / counts.clamp_min(1).unsqueeze(1)
+            new_centroids = torch.where(counts.unsqueeze(1) > 0, means, centroids)
 
         # Avoid a host synchronization per iteration in fixed-work benchmarks.
         shift = (torch.linalg.vector_norm(new_centroids - centroids).item()
@@ -67,8 +74,9 @@ def _fit_kmeans(X, num_clusters, num_iterations, threshold, assign_labels, *,
             converged = True
             break
 
-    labels = assign_labels(X, centroids)
-    inertia = (X - centroids[labels]).square().sum(dtype=torch.float64).item()
+    with stage("final_assignment_inertia", device=True):
+        labels = assign_labels(X, centroids)
+        inertia = (X - centroids[labels]).square().sum(dtype=torch.float64).item()
     return labels, centroids, iteration, converged, inertia
 
 

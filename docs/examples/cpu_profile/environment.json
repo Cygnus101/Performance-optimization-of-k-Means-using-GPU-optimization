@@ -1,0 +1,73 @@
+{
+  "started_at": "2026-11-23T05:07:50.105583+00:00",
+  "protocol": "stage_profile_v1",
+  "status": "complete",
+  "dataset": "synthetic",
+  "shape": [
+    256,
+    4
+  ],
+  "preprocessing": "standard normal; np.random.default_rng(42)",
+  "smoke": true,
+  "seed": 42,
+  "k": [
+    2,
+    4
+  ],
+  "iterations": 20,
+  "runs": 5,
+  "warmups": 2,
+  "threads": 1,
+  "selected": [
+    "numpy",
+    "sklearn"
+  ],
+  "device": 0,
+  "platform": "macOS-26.5.1-arm64-arm-64bit-Mach-O",
+  "python": "3.13.5",
+  "versions": {
+    "numpy": "2.2.6",
+    "scikit-learn": "1.6.1",
+    "torch": "2.6.0",
+    "numba": "0.61.2",
+    "numba-cuda": "0.16.0",
+    "matplotlib": "3.10.3",
+    "threadpoolctl": "3.6.0"
+  },
+  "warmup": [
+    {
+      "implementation": "NumPy CPU",
+      "k": 2,
+      "seconds": 0.000533333994098939,
+      "definition": "First full fit after context setup; JIT/cache setup plus execution, not isolated compilation",
+      "instrumented_seconds": 0.000520500005222857
+    },
+    {
+      "implementation": "scikit-learn CPU",
+      "k": 2,
+      "seconds": 0.0007220420084195212,
+      "definition": "First full fit after context setup; JIT/cache setup plus execution, not isolated compilation",
+      "instrumented_seconds": 0.0002749999985098839
+    },
+    {
+      "implementation": "scikit-learn CPU",
+      "k": 4,
+      "seconds": 0.00023350000265054405,
+      "definition": "First full fit after context setup; JIT/cache setup plus execution, not isolated compilation",
+      "instrumented_seconds": 0.00022020901087671518
+    },
+    {
+      "implementation": "NumPy CPU",
+      "k": 4,
+      "seconds": 0.0008413750038016587,
+      "definition": "First full fit after context setup; JIT/cache setup plus execution, not isolated compilation",
+      "instrumented_seconds": 0.0007975000044098124
+    }
+  ],
+  "gpu_status": "omitted (CPU suite)",
+  "source_commit": "e3f8ab16a5949b35b032359a82be956f61f6e896",
+  "source_dirty": true,
+  "accounting": "sum exclusive wall stages including unscoped_host = profiled end-to-end per run; CUDA intervals are a separate non-additive view",
+  "validation": "same independent float64 reference and tolerances as sweep_k; validate every warmup and measured fit outside timing",
+  "limitations": "docs/profiling.md; cpu_overhead is N/A, not inferred by subtracting device time; transfer scopes include allocation/staging; implicit waits remain in calling scope"
+}

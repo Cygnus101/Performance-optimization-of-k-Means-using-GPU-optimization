@@ -1,4 +1,5 @@
 """Unified complete-fit CPU, PyTorch and Numba CUDA benchmark."""
+from implementations.profiling import stage
 import argparse
 import csv
 import importlib.metadata
@@ -56,13 +57,15 @@ def load_benchmark_data(dataset="fashion-mnist", *, smoke=False):
 
 def torch_complete_fit(X, initial, *, torch, fit, device, **kwargs):
     """Called INSIDE timing: fresh input transfers and CPU result copies every fit."""
-    samples = torch.as_tensor(X, device=device)
-    centers = torch.as_tensor(initial, device=device)
+    with stage("h2d", device=True):
+        samples = torch.as_tensor(X, device=device)
+        centers = torch.as_tensor(initial, device=device)
     result = fit(samples, initial_centroids=centers, **kwargs)
-    return (result[0].cpu().numpy(), result[1].cpu().numpy(), *result[2:])
+    with stage("d2h", device=True):
+        return (result[0].cpu().numpy(), result[1].cpu().numpy(), *result[2:])
 
 
-def prepare_backends(suite, thread_sizes):
+def prepare_backends(suite, thread_sizes, device_index=0):
     """Initialize selected contexts outside timing; never upload benchmark inputs here."""
     backends = {}
     info = {"gpu_status": "omitted (CPU suite)"}
@@ -71,8 +74,8 @@ def prepare_backends(suite, thread_sizes):
         if not torch.cuda.is_available():
             raise RuntimeError("NVIDIA CUDA required; use --suite cpu for explicitly partial CPU results.")
         from implementations import pytorch_implementation
-        torch.cuda.set_device(0)
-        device = torch.device("cuda", 0)
+        torch.cuda.set_device(device_index)
+        device = torch.device("cuda", device_index)
         torch.backends.cuda.matmul.allow_tf32 = False
         torch.backends.cudnn.allow_tf32 = False
         torch.set_float32_matmul_precision("highest")
@@ -83,8 +86,7 @@ def prepare_backends(suite, thread_sizes):
     if suite in ("all", "numba", "gpu"):
         from numba import cuda
         from implementations.numba_cuda.common import require_cuda
-        device = require_cuda()  # Explicitly rejects CUDA simulator.
-        cuda.select_device(0)  # Match PyTorch's device for cross-library comparisons.
+        cuda.select_device(device_index)  # Match PyTorch device; reject simulator below.
         device = require_cuda()
         if (not thread_sizes or len(set(thread_sizes)) != len(thread_sizes)
                 or any(t < 32 or t > min(1024, device.MAX_THREADS_PER_BLOCK) or t % 32

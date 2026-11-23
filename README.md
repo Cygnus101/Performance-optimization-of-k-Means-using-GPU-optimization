@@ -4,6 +4,23 @@ Compare NumPy CPU, scikit-learn CPU, the PyTorch CUDA baseline, and independent
 Numba CUDA V2.0–V2.6 implementations using **one complete-fit benchmark**.
 No GPU performance claim is made until measured on NVIDIA CUDA.
 
+## Compare stage costs
+
+The opt-in profiler covers every current implementation and the V2.1 block-size
+configurations, using the actual fit paths and shared validation:
+
+```sh
+python -m benchmarks.profile_stages --backend gpu --runs 5 --output results/profile_gpu
+python -m benchmarks.profile_stages --backend cpu --dataset synthetic --smoke --output results/profile_cpu_smoke
+```
+
+It writes per-step/per-stage CSVs, medians and variability, plots, paired
+unprofiled/profiled latency comparisons, and excluded warmup times. Host wall
+scopes account for elapsed time; CUDA-event intervals form a separate view.
+Fused or inseparable components are N/A. Read [profiling definitions and limitations](docs/profiling.md)
+before interpreting the breakdown. [Actual CPU example outputs](docs/examples/cpu_profile/report.md)
+are functional smoke results; NVIDIA validation remains required.
+
 ## Run the unified sweep
 
 From the repository root:
@@ -132,8 +149,8 @@ versions are listed below. The wrapper continues to return a fitted KMeans model
 ## Numba CUDA variants
 
 All filenames use underscores, `v2_0_baseline.py` through `v2_6_warp_reduction.py`.
-The original baseline's contents and user comments are preserved. Its only change
-was renaming `v2.0_baseline.py` to `v2_0_baseline.py`.
+The original baseline's contents and user comments are preserved. It was renamed from `v2.0_baseline.py` to `v2_0_baseline.py`; optional
+profiling scopes now surround its existing host operations without changing kernels.
 
 Each variant returns `(labels, centers, iterations, converged, inertia)` and accepts
 the baseline arguments plus `threads_per_block=256`. V2.5 and V2.6 also accept `shards=32`.

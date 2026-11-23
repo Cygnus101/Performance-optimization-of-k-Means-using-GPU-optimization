@@ -1,3 +1,4 @@
+from implementations.profiling import stage
 
 import numpy as np
 from numba import cuda, float32, float64
@@ -104,48 +105,56 @@ def kmeans(
     initial_centroids=None,
     early_stopping=True,
 ):
-    X = np.ascontiguousarray(X, dtype=np.float32)
-    n, d = X.shape
-    k = num_clusters
+    with stage("initial_work", device=False):
+        X = np.ascontiguousarray(X, dtype=np.float32)
+        n, d = X.shape
+        k = num_clusters
 
-    if initial_centroids is None:
-        initial_centroids = initialize_centroids(X, k)
+        if initial_centroids is None:
+            initial_centroids = initialize_centroids(X, k)
 
-    initial_centroids = np.ascontiguousarray(
-        initial_centroids, dtype=np.float32
-    )
+        initial_centroids = np.ascontiguousarray(
+            initial_centroids, dtype=np.float32
+        )
 
-    d_X = cuda.to_device(X)
-    d_C = cuda.to_device(initial_centroids)
+    with stage("h2d", device=True):
+        d_X = cuda.to_device(X)
+        d_C = cuda.to_device(initial_centroids)
 
-    d_labels = cuda.device_array(n, dtype=np.int32)
-    d_sums = cuda.device_array((k, d), dtype=np.float32)
-    d_counts = cuda.device_array(k, dtype=np.int32)
-    d_shift = cuda.device_array(1, dtype=np.float32)
+    with stage("allocation", device=False):
+        d_labels = cuda.device_array(n, dtype=np.int32)
+        d_sums = cuda.device_array((k, d), dtype=np.float32)
+        d_counts = cuda.device_array(k, dtype=np.int32)
+        d_shift = cuda.device_array(1, dtype=np.float32)
 
-    d_inertia = cuda.to_device(
-        np.zeros(1, dtype=np.float64)
-    )
+    with stage("h2d", device=True):
+        d_inertia = cuda.to_device(
+            np.zeros(1, dtype=np.float64)
+        )
 
     converged = False
 
     for iteration in range(1, num_iterations + 1):
-        reset[blocks(k * d), THREADS](
-            d_sums, d_counts, d_shift
-        )
+        with stage("centroid_reset", device=True, step=iteration):
+            reset[blocks(k * d), THREADS](
+                d_sums, d_counts, d_shift
+            )
 
-        assign[blocks(n), THREADS](
-            d_X, d_C, d_labels
-        )
+        with stage("assignment", device=True, step=iteration):
+            assign[blocks(n), THREADS](
+                d_X, d_C, d_labels
+            )
 
-        accumulate[blocks(n * d), THREADS](
-            d_X, d_labels, d_sums, d_counts
-        )
+        with stage("centroid_accumulation", device=True, step=iteration):
+            accumulate[blocks(n * d), THREADS](
+                d_X, d_labels, d_sums, d_counts
+            )
 
-        update[blocks(k * d), THREADS](
-            d_sums, d_counts, d_C,
-            d_shift, early_stopping
-        )
+        with stage("centroid_update", device=True, step=iteration):
+            update[blocks(k * d), THREADS](
+                d_sums, d_counts, d_C,
+                d_shift, early_stopping
+            )
 
         if early_stopping:
             shift = float(d_shift.copy_to_host()[0])
@@ -154,20 +163,23 @@ def kmeans(
                 converged = True
                 break
 
-    assign[blocks(n), THREADS](
-        d_X, d_C, d_labels
-    )
+    with stage("final_assignment_inertia", device=True):
+        assign[blocks(n), THREADS](
+            d_X, d_C, d_labels
+        )
 
-    calculate_inertia[blocks(n), THREADS](
-        d_X, d_C, d_labels, d_inertia
-    )
+        calculate_inertia[blocks(n), THREADS](
+            d_X, d_C, d_labels, d_inertia
+        )
 
-    cuda.synchronize()
+    with stage("synchronization", device=False):
+        cuda.synchronize()
 
-    return (
-        d_labels.copy_to_host(),
-        d_C.copy_to_host(),
-        iteration,
-        converged,
-        float(d_inertia.copy_to_host()[0]),
-    )
+    with stage("d2h", device=True):
+        return (
+            d_labels.copy_to_host(),
+            d_C.copy_to_host(),
+            iteration,
+            converged,
+            float(d_inertia.copy_to_host()[0]),
+        )
